@@ -1,0 +1,130 @@
+---
+title: "Regression and Other Stories: Earnings"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Bootstrapping to simulate the sampling distribution. See Chapter 5 in
+Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+
+# Parameters
+  # Earnings data
+file_earnings <- here::here("Earnings/data/earnings.csv")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 5 Simulation
+
+## 5.4 Bootstrapping to simulate a sampling distribution
+
+Data
+
+```{r, message=FALSE}
+earnings <- 
+  file_earnings %>% 
+  read_csv() %>% 
+  mutate(
+    sex = 
+      case_when(
+        male == 0 ~ "Female",
+        male == 1 ~ "Male",
+        TRUE ~ NA_character_
+      )
+  ) %>% 
+  select(age, sex, earn)
+```
+
+EDA
+
+```{r}
+earnings %>% 
+  select(age, earn) %>% 
+  summary()
+
+earnings %>% 
+  count(sex)
+
+earnings %>%
+  group_by(sex) %>% 
+  summarize(across(earn, list(median = median, mean = mean)))
+```
+
+Median of women's earnings divided by the median of men's earnings.
+
+```{r}
+earnings %>% 
+  summarize(
+    earnings_ratio = median(earn[sex == "Female"]) / median(earn[sex == "Male"])
+  ) %>% 
+  pull(earnings_ratio)
+```
+
+Earnings ratio of bootstrap sample.
+
+```{r}
+earnings_ratio <- function() {
+  earnings %>% 
+    select(sex, earn) %>% 
+    slice_sample(prop = 1, replace = TRUE) %>% 
+    summarize(
+      earnings_ratio = 
+        median(earn[sex == "Female"]) / median(earn[sex == "Male"])
+    ) %>% 
+    pull(earnings_ratio)
+}
+```
+
+A set of bootstrap simulations.
+
+```{r}
+set.seed(194)
+
+n_sims <- 1e4
+
+earnings_ratio_boot <- 
+  tibble(earnings_ratio = map_dbl(seq_len(n_sims), ~ earnings_ratio()))
+```
+
+Distribution of bootstrap earnings ratios.
+
+```{r}
+earnings_ratio_boot %>% 
+  ggplot(aes(earnings_ratio)) +
+  geom_histogram(binwidth = 0.01) +
+  labs(
+    title = "Distribution of bootstrap earnings ratios",
+    x = "Earnings ratio",
+    y = "Count"
+  )
+```
+
+```{r}
+earnings_ratio_boot %>% 
+  count(earnings_ratio, sort = TRUE) %>% 
+  mutate(prop_cum = cumsum(n) / sum(n))
+```
+
+Because of the nature of the data, one value accounts for 70% of the earnings ratios in the bootstrap samples and the top three account for 92%.
+
+Standard deviation of bootstrap earnings ratios.
+
+```{r}
+sd(earnings_ratio_boot$earnings_ratio)
+```
+

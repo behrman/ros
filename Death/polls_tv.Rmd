@@ -1,0 +1,78 @@
+---
+title: "Regression and Other Stories: Death penalty poll"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Death penalty poll - Proportion of American adults supporting the death
+penalty. See Chapter 4 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+
+# Parameters
+  # Gallup death penalty poll data
+file_death_penalty <- here::here("Death/data/polls.dat")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 4 Statistical inference
+
+## 4.2 Estimates, standard errors, and confidence intervals
+
+### Comparisons, visual and numerical
+
+Data
+
+```{r, message=FALSE}
+death_penalty <- 
+  file_death_penalty %>% 
+  scan() %>% 
+  matrix(ncol = 5, byrow = TRUE) %>% 
+  as_tibble(
+    .name_repair = ~ c("year", "month", "favor", "not_in_favor", "no_opinion")
+  ) %>% 
+  transmute(
+    date = lubridate::make_date(year = year, month = month),
+    favor = favor / (favor + not_in_favor),
+    favor_sd = sqrt(favor * (1 - favor) / 1000)
+  )
+```
+
+Are you in favor of the death penalty for a person convicted of murder?
+
+```{r}
+death_penalty %>% 
+  ggplot(aes(date, favor)) +
+  geom_pointrange(
+    aes(ymin = favor - favor_sd, ymax = favor + favor_sd),
+    size = 0.2
+  ) +
+  scale_x_date(
+    breaks = lubridate::make_date(year = seq(1940, 2000, 10)),
+    minor_breaks = lubridate::make_date(year = seq(1936, 2004, 2)),
+    date_labels = "%Y"
+  ) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1)) +
+  labs(
+    title = 
+      "Are you in favor of the death penalty for a person convicted of murder?",
+    x = "Year",
+    y = "Percentage in favor of those with an opinion",
+    caption = "Source: Gallup"
+  )
+```
+

@@ -1,0 +1,157 @@
+---
+title: "Regression and Other Stories: Gay"
+author: "Andrew Gelman, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Simple models (linear and discretized age) and attitudes as a
+function of age. See Chapter 12 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Data on support for same-sex marriage
+file_data <- here::here("Gay/data/naes04.csv")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 12 Transformations and regression
+
+## 12.5 Other transformation
+
+### Index and indicator variables
+
+Data
+
+```{r, message=FALSE, warning=FALSE}
+data <- 
+  file_data %>% 
+  read_csv() %>% 
+  drop_na(age, gayFavorStateMarriage) %>% 
+  select(age, gayFavorStateMarriage)
+
+data  
+```
+
+```{r}
+summary(data$age)
+```
+
+`age` ranges from 18 to 97.
+
+```{r}
+data %>% 
+  count(age) %>% 
+  arrange(desc(age))
+```
+
+Because of the relatively small number of respondents over age 90, we will let age 91 represent respondents ages 91 and over. We will also create a variable for binned ages.
+
+```{r}
+age_max <-  91
+
+data <- 
+  data %>% 
+  mutate(age = if_else(age >= age_max , age_max, age)) %>%
+  group_by(age) %>% 
+  summarize(favor = sum(gayFavorStateMarriage == "Yes") / n()) %>% 
+  mutate(
+    age_bin = cut(age, breaks = c(min(age) - 1, seq(29, 79, 10), age_max))
+  )
+
+data
+```
+
+Fit linear regression model.
+
+```{r}
+set.seed(235)
+
+fit_linear <- stan_glm(favor ~ age, data = data, refresh = 0)
+
+print(fit_linear, digits = 4)
+```
+
+Attitudes toward same-sex marriage by age in 2004.
+
+```{r}
+intercept <- coef(fit_linear)[["(Intercept)"]]
+slope <- coef(fit_linear)[["age"]]
+
+data %>% 
+  ggplot() +
+  geom_abline(slope = slope, intercept = intercept) +
+  geom_point(aes(age, favor)) +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1)) +
+  labs(
+    title = "Attitudes toward same-sex marriage by age in 2004",
+    x = "Age",
+    y = "Favor same-sex marriage"
+  )
+```
+
+Fit model with binned ages.
+
+```{r}
+set.seed(235)
+
+fit_binned <- stan_glm(favor ~ age_bin, data = data, refresh = 0)
+
+print(fit_binned, digits = 2)
+```
+
+Attitudes toward same-sex marriage by age in 2004: For binned ages.
+
+```{r}
+levels <- 
+  coef(fit_binned) %>% 
+  enframe(value = "favor") %>% 
+  mutate(name = if_else(name == "(Intercept)", "17,29", name)) %>% 
+  extract(
+    col = name,
+    into = c("age_min", "age_max"),
+    regex = "(\\d+),(\\d+)",
+    convert = TRUE
+  ) %>% 
+  mutate(
+    age_min = age_min + 1L,
+    favor = 
+      case_when(
+        age_min == 18 ~ favor,
+        TRUE ~ favor[age_min == 18] + favor
+      )
+  )
+
+data %>% 
+  ggplot() +
+  geom_segment(
+    aes(x = age_min, xend = age_max, y = favor, yend = favor), 
+    data = levels
+  ) +
+  geom_point(aes(age, favor)) +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1)) +
+  labs(
+    title = "Attitudes toward same-sex marriage by age in 2004",
+    subtitle = "For binned ages",
+    x = "Age",
+    y = "Favor same-sex marriage"
+  )
+```
+

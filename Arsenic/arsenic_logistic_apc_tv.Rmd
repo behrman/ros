@@ -1,0 +1,217 @@
+---
+title: "Regression and Other Stories: Arsenic"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Average predictive comparisons for a logistic regression model:
+wells in Bangladesh. See Chapter 14 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Data on arsenic in unsafe wells in Bangladesh
+file_wells <- here::here("Arsenic/data/wells.csv")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 14 Working with logistic regression
+
+## 14.4 Average predictive comparisons on the probability scale
+
+### Demonstration with the well-switching example
+
+Data
+
+```{r, message=FALSE}
+wells <- read_csv(file_wells)
+
+summary(wells)
+```
+
+The variables are:
+
+* `switch`: Outcome variable:
+  * 1 if household switched to a new well
+  * 0 if household continued using its own well
+* `arsenic`: Arsenic level of respondent's well
+* `dist`: Distance (in meters) to the closest known safe well
+* `dist100` = `dist / 100`
+* `assoc`: Whether any members of the household are active in community organizations
+* `educ`: Education level of the head of household
+* `educ4` = `educ / 4`
+
+Fit a model using scaled distance, arsenic level, and education of head of household.
+
+```{r}
+set.seed(733)
+
+fit_7 <- 
+  stan_glm(
+    switch ~ dist100 + arsenic + educ4,
+    family = binomial(link = "logit"),
+    data = wells,
+    refresh = 0
+  )
+
+print(fit_7, digits = 2)
+```
+
+#### Average predictive difference in probability of switching
+
+Model coefficients.
+
+```{r}
+b <- coef(fit_7)
+names(b)
+```
+
+Compare households that are next to or 100 meters from the nearest safe well.
+
+```{r}
+dist100_lo <- 0
+dist100_hi <- 1
+
+dist100_apd <- 
+  wells %>% 
+  mutate(
+    delta = 
+      plogis(b[1] + b[2] * dist100_hi + b[3] * arsenic + b[4] * educ4) -
+      plogis(b[1] + b[2] * dist100_lo + b[3] * arsenic + b[4] * educ4)
+  ) %>% 
+  pull(delta) %>% 
+  mean()
+
+dist100_apd
+```
+
+The result is `r format(dist100_apd, digits = 2, nsmall = 2)`, implying that, on average in the data, households that are 100 meters from the nearest safe well are `r round(100 * abs(dist100_apd))`% less likely to switch, compared to households that are right next to the nearest safe well, at the same arsenic and education levels.
+
+#### Comparing probabilities of switching for households differing in arsenic levels
+
+Compare households with existing arsenic levels of 0.5 or 1.0.
+
+```{r}
+arsenic_lo <- 0.5
+arsenic_hi <- 1.0
+
+arsenic_apd <- 
+  wells %>% 
+  mutate(
+    delta = 
+      plogis(b[1] + b[2] * dist100 + b[3] * arsenic_hi + b[4] * educ4) -
+      plogis(b[1] + b[2] * dist100 + b[3] * arsenic_lo + b[4] * educ4)
+  ) %>% 
+  pull(delta) %>% 
+  mean()
+
+arsenic_apd
+```
+
+The result is `r format(arsenic_apd, digits = 2, nsmall = 3)` -- so this corresponds to a `r format(100 * abs(arsenic_apd), digits = 1, nsmall = 1)`% difference in the probability of switching.
+
+#### Average predictive difference in probability of switching, comparing households with 0 and 12 years of education
+
+Compare households with 0 or 12 years of education.
+
+```{r}
+educ4_lo <- 0
+educ4_hi <- 3
+
+educ4_apd <- 
+  wells %>% 
+  mutate(
+    delta = 
+      plogis(b[1] + b[2] * dist100 + b[3] * arsenic + b[4] * educ4_hi) -
+      plogis(b[1] + b[2] * dist100 + b[3] * arsenic + b[4] * educ4_lo)
+  ) %>% 
+  pull(delta) %>% 
+  mean()
+
+educ4_apd
+```
+
+This comes to `r format(educ4_apd, digits = 2, nsmall = 2)`, a difference of `r round(100 * abs(educ4_apd))`%.
+
+### Average predictive comparisons in the presence of interactions
+
+Center variables.
+
+```{r}
+wells <- 
+  wells %>% 
+  mutate(
+    arsenic_c = arsenic - mean(arsenic),
+    dist100_c = dist100 - mean(dist100),
+    educ4_c = educ4 - mean(educ4)
+  )
+```
+
+Fit a model using scaled distance, arsenic level, education of head of household, and interactions with education.
+
+```{r}
+set.seed(733)
+
+fit_8 <- 
+  stan_glm(
+    switch ~ 
+      dist100_c + arsenic_c + educ4_c + dist100_c:educ4_c + arsenic_c:educ4_c,
+    family = binomial(link = "logit"),
+    data = wells,
+    refresh = 0
+  )
+
+print(fit_8, digits = 2)
+```
+
+Model coefficients.
+
+```{r}
+b <- coef(fit_8)
+names(b)
+```
+
+Compare households that are next to or 100 meters from the nearest safe well.
+
+```{r}
+dist100_lo <- 0
+dist100_hi <- 1
+dist100_c_lo <- dist100_lo - mean(wells$dist100)
+dist100_c_hi <- dist100_hi - mean(wells$dist100)
+
+dist100_apd <- 
+  wells %>% 
+  mutate(
+    delta = 
+      plogis(
+        b[1] + b[2] * dist100_c_hi + b[3] * arsenic_c + b[4] * educ4_c +
+          b[5] * dist100_c_hi * educ4_c + b[6] * arsenic_c * educ4_c
+      ) -
+      plogis(
+        b[1] + b[2] * dist100_c_lo + b[3] * arsenic_c + b[4] * educ4_c +
+          b[5] * dist100_c_lo * educ4_c + b[6] * arsenic_c * educ4_c
+      )
+  ) %>% 
+  pull(delta) %>% 
+  mean()
+
+dist100_apd
+```
+
+This comes to `r format(dist100_apd, digits = 2, nsmall = 2)`, a difference of `r round(100 * abs(dist100_apd))`%.
+

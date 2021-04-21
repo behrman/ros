@@ -1,0 +1,148 @@
+---
+title: "Regression and Other Stories: FakeKCV"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Demonstration of K-fold cross-validation using simulated
+data. See Chapter 11 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 11 Assumptions, diagnostics, and model evaluation
+
+## 11.8 Cross validation
+
+### Demonstration of K-fold cross validation using simulated data
+
+Simulated data. 60 × 30  matrix representing 30 predictors that are random but not independent; rather, we draw them from a multivariate normal distribution with correlations of 0.8.
+
+```{r}
+set.seed(586)
+
+n <- 60
+k <- 30
+var <- 1
+cov <- 0.8
+sigma <- matrix(cov, nrow = k, ncol = k)
+diag(sigma) <- var
+b <- c(c(-1, 1, 2), rep(0, k - 3))
+
+data <-
+  tibble(
+    X = mvtnorm::rmvnorm(n, mean = rep(0, k), sigma = sigma),
+    y = X %*% b + rnorm(n, mean = 0, sd = 2)
+  )
+```
+
+#### Weakly informative prior
+
+Fit linear model with weakly informative prior.
+
+```{r}
+set.seed(792)
+
+fit_1 <- 
+  stan_glm(
+    y ~ X,
+    data = data,
+    refresh = 0,
+    prior = normal(location = 0, scale = 10)
+  )
+
+fit_1
+```
+
+Perform LOO cross-validation.
+
+```{r}
+loo_1 <- loo(fit_1)
+
+loo_1
+```
+
+In this case, Pareto smoothed importance sampling (PSIS) LOO fails, but the diagnostic recognizes this with many high Pareto k values. We can run slower, but more robust K-fold cross-validation.
+
+```{r, message=FALSE}
+kfold_1 <- kfold(fit_1, K = 10)
+
+kfold_1
+```
+
+#### An alternate weakly informative prior
+
+The regularized horseshoe prior `hs()` is weakly informative, stating that it is likely that only small number of predictors are relevant, but we don’t know which ones.
+
+Fit linear model with regularized horseshoe prior.
+
+```{r}
+set.seed(792)
+
+var_rel <- 2  # Prior guess for the number of relevant variables
+global_scale <- var_rel / (k - var_rel) * 1 / sqrt(n)
+
+fit_2 <- 
+  stan_glm(
+    y ~ X,
+    data = data,
+    refresh = 0,
+    prior = 
+      hs(
+        df = 1,
+        global_df = 1,
+        global_scale = global_scale,
+        slab_df = 7,
+        slab_scale = 3
+      )
+  )
+
+fit_2
+```
+
+Perform LOO cross-validation.
+
+```{r}
+loo_2 <- loo(fit_2)
+
+loo_2
+```
+
+Perform K-fold cross-validation.
+
+```{r, message=FALSE}
+kfold_2 <- kfold(fit_2, K = 10)
+
+kfold_2
+```
+
+#### Comparison of models
+
+```{r}
+loo_compare(loo_1, loo_2)
+```
+
+```{r}
+loo_compare(kfold_1, kfold_2)
+```
+
+As PSIS-LOO fails, PSIS-LOO comparison underestimates the difference between the models. The Pareto k diagnostic correctly identified the problem, and more robust K-fold cross-validation shows that by using a better prior we can get better predictions.
+

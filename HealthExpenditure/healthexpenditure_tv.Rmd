@@ -1,0 +1,81 @@
+---
+title: "Regression and Other Stories: Health Expenditure"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r format(Sys.Date())`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Health Expenditure - Discovery through graphs of data and
+models. See Chapter 2 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+
+# Parameters
+  # Global health expenditures and life expectancy
+file_health <- here::here("HealthExpenditure/data/healthdata.txt")
+  # Common code
+file_common <- here::here("_common.R")
+  
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 2 Data and measurement
+
+## 2.3 All graphs are comparisons
+
+### Simple scatterplots
+
+Data
+
+```{r, message=FALSE}
+health <- 
+  file_health %>% 
+  read.table(header = TRUE) %>% 
+  as_tibble()
+
+health
+```
+
+Health care spending and life expectancy in several countries.
+
+```{r, fig.asp=0.75}
+set.seed(576)
+
+country_recode <- 
+  c(
+    "Czech" = "Czech Republic",
+    "N.Zealand" = "New Zealand"
+  )
+
+v <- 
+  health %>% 
+  mutate(country = recode(country, !!! country_recode))
+
+v %>% 
+  ggplot(aes(spending, lifespan, color = country %in% c("Mexico", "USA"))) +
+  geom_point() +
+  ggrepel::geom_text_repel(aes(label = country)) +
+  scale_x_continuous(breaks = scales::breaks_width(1000)) +
+  scale_y_continuous(breaks = scales::breaks_width(1)) +
+  scale_color_manual(
+    breaks = c(TRUE, FALSE),
+    values = c("red", "black")
+  ) +
+  theme(legend.position = "none") +
+  labs(
+    title = "Health care spending and life expectancy in several countries",
+    x = "Health care spending (PPP USD)",
+    y = "Life expectancy (years)"
+  )
+```
+

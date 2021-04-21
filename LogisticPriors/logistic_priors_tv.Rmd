@@ -1,0 +1,90 @@
+---
+title: "Regression and Other Stories: Logistic regression priors"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Effect of priors in logistic regression. See Chapter 13 in
+Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 13 Logistic regression
+
+## 13.5 Maximum likelihood and Bayesion inference for logistic regression
+
+### Comparing maximum likelihood and Bayesian inference using a simulation study
+
+Define a function to run `glm()` and `stan_glm()` with simulated data. The arguments are the number of simulated observations and the true parameter values.
+
+```{r}
+bayes_sim <- function(n, a = -2, b = 0.8) {
+  data <- 
+    tibble(
+      x = runif(n, min = -1, max = 1),
+      y = if_else(0 < rlogis(n, location = a + b * x, scale = 1), 1, 0)
+    )
+  
+  fit_glm <- glm(y ~ x, family = binomial(link = "logit"), data = data)
+  fit_stan <- 
+    stan_glm(
+      y ~ x,
+      family = binomial(link = "logit"),
+      data = data,
+      refresh = 0,
+      prior = normal(location = 0.5, scale = 0.5)
+    )
+  
+  arm::display(fit_glm, digits = 1)
+  cat("\n")
+  print(fit_stan, digits = 1)
+}
+```
+
+We next simulate for a range of sample sizes, each time focusing on inference about b, for which a value of 0.8 was used to generate the data.
+
+#### n = 10
+
+```{r}
+set.seed(363852)
+
+bayes_sim(10)
+```
+
+We shall focus on the coefficient of x, which represents the parameter of interest in this hypothetical study. In the above simulation, `glm()` gives a maximum likelihood estimate of 1.5, which is far from the specified belief that b is likely to be in the range (0, 1) -- but that estimate also has a large standard error, indicating that the likelihood provides little information in this n = 10 setting. In contrast, the inference from `stan_glm()` relies heavily on the prior distribution: the Bayes estimate of 0.6 is close to the prior mean of 0.5, being pulled away by the data only slightly.
+
+#### n = 100
+
+```{r}
+bayes_sim(100)
+```
+
+The maximum likelihood estimate is again extreme, but less so than before, and the Bayes estimate is again pulled toward the prior mean of 0.5, but less so than before. This is just one realization of the process, and another random simulation will give different results, but it illustrates the general pattern of the Bayesian posterior estimate being a compromise between data and prior.
+
+#### n = 1000
+
+```{r}
+bayes_sim(1000)
+```
+
+The Bayes estimate is only slightly pooled toward the prior mean. In this particular example, once n is as large as 1000, the prior distribution doesn't really make a difference.
+

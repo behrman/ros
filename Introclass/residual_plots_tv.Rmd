@@ -1,0 +1,152 @@
+---
+title: "Regression and Other Stories: Introclass"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Plot residuals vs.\ predicted values, or residuals vs.\ observed
+values? See Chapter 11 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Course scores
+file_scores <- here::here("Introclass/data/gradesW4315.dat")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 11 Assumptions, diagnostics, and model evaluation
+
+## 11.3 Residual plots
+
+### A confusing choice: plot residuals vs. predicted values, or residuals vs. observed values?
+
+Data
+
+```{r}
+scores <- 
+  file_scores %>% 
+  read.table(header = TRUE) %>% 
+  as_tibble()
+
+scores
+```
+
+Fit linear regression model.
+
+The option `refresh = 0` suppresses the default Stan sampling progress output. This is useful for small data with fast computation. For more complex models and bigger data, it can be useful to see the progress.
+
+```{r}
+set.seed(733)
+
+fit <- stan_glm(final ~ midterm, data = scores, refresh = 0)
+
+fit
+```
+
+Predicted values and residuals.
+
+```{r}
+v <- 
+  scores %>% 
+  mutate(
+    pred = predict(fit),
+    resid = residuals(fit)
+  )
+```
+
+Residual vs. observed value.
+
+```{r}
+v %>% 
+  ggplot(aes(final, resid)) +
+  geom_hline(yintercept = 0, color = "white", size = 2) +
+  geom_point() +
+  scale_x_continuous(breaks = scales::breaks_width(10)) +
+  labs(
+    title = "Residual vs. observed value",
+    x = "Observed value",
+    y = "Residual"
+  )
+```
+
+Residual vs. predicted value.
+
+```{r}
+v %>% 
+  ggplot(aes(pred, resid)) +
+  geom_hline(yintercept = 0, color = "white", size = 2) +
+  geom_point() +
+  scale_x_continuous(breaks = scales::breaks_width(5)) +
+  labs(
+    title = "Residual vs. predicted value",
+    x = "Predicted value",
+    y = "Residual"
+  )
+```
+
+### Understanding the choice using fake-data simulation
+
+Simulate final scores using the actual midterm scores and model parameters.
+
+```{r}
+set.seed(746)
+
+intercept <- coef(fit)[["(Intercept)"]]
+slope <- coef(fit)[["midterm"]]
+sigma <- sigma(fit)
+
+scores_sim <- 
+  scores %>% 
+  mutate(
+    pred = intercept + slope * midterm,
+    final_sim = pred + rnorm(n(), mean = 0, sd = sigma),
+    resid = final_sim - pred
+  )
+```
+
+Residual vs. observed value.
+
+```{r}
+scores_sim %>% 
+  ggplot(aes(final_sim, resid)) +
+  geom_hline(yintercept = 0, color = "white", size = 2) +
+  geom_point() +
+  scale_x_continuous(breaks = scales::breaks_width(10)) +
+  labs(
+    title = "Residual vs. observed value",
+    x = "Observed value",
+    y = "Residual"
+  )
+```
+
+Residual vs. predicted value.
+
+```{r}
+scores_sim %>% 
+  ggplot(aes(pred, resid)) +
+  geom_hline(yintercept = 0, color = "white", size = 2) +
+  geom_point() +
+  scale_x_continuous(breaks = scales::breaks_width(5)) +
+  labs(
+    title = "Residual vs. predicted value",
+    x = "Predicted value",
+    y = "Residual"
+  )
+```
+

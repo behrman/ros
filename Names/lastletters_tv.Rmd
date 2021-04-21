@@ -1,0 +1,127 @@
+---
+title: "Regression and Other Stories: Last letters of names"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r format(Sys.Date())`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Last letters of names - Distributions of last letters of names of
+American babies. See Chapter 2 in Regression and Other Stories.
+
+-------------
+
+# 2 Data and measurement
+
+## 2.3 All graphs are comparisons
+
+### Multiple plots
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(babynames)
+
+# Parameters
+  # Common code
+file_common <- here::here("_common.R")
+  
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+Data
+
+```{r}
+babynames
+```
+
+
+Last letter of boys' names by year.
+
+```{r}
+boys_last_letter <- 
+  babynames %>% 
+  filter(sex == "M") %>% 
+  mutate(last_letter = str_sub(name, start = -1L)) %>% 
+  group_by(year, last_letter) %>%
+  summarize(prop = sum(prop)) %>% 
+  ungroup()
+
+boys_last_letter
+```
+
+Last letter of boys' names by year.
+
+```{r, fig.asp=1}
+boys_last_letter %>% 
+  filter(year %in% c(1906, 1956, 2006)) %>% 
+  ggplot(aes(last_letter, prop)) +
+  geom_col() +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1)) +
+  facet_grid(rows = vars(year)) +
+  labs(
+    title = "Last letter of boys' names by year",
+    x = "Last letter of name",
+    y = "Percentage of boys born"
+  )
+```
+
+Last letter of boys' names by year.
+
+```{r, fig.asp=1}
+boys_last_letter %>% 
+  ggplot(aes(year, prop)) +
+  geom_line() +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1)) +
+  facet_wrap(facets = vars(last_letter), ncol = 5) +
+  labs(
+    title = "Last letter of boys' names by year",
+    x = "Year",
+    y = "Percentage of boys born"
+  )
+```
+
+Proportion of top 10 names each year by sex.
+
+```{r}
+prop_top_10 <- 
+  babynames %>% 
+  group_by(year, sex) %>% 
+  slice_max(order_by = prop, n = 10) %>% 
+  summarize(prop = sum(prop)) %>% 
+  ungroup()
+
+prop_top_10
+```
+
+Percentage of top 10 names each year by sex.
+
+```{r}
+labels <- 
+  tribble(
+    ~year, ~prop, ~label,
+    1948, 0.38, "Boys",
+    1948, 0.18, "Girls"
+  )
+
+prop_top_10 %>% 
+  ggplot(aes(year, prop)) +
+  geom_line(aes(color = sex)) +
+  geom_text(aes(label = label), data = labels) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1)) +
+  coord_cartesian(ylim = c(0, NA)) +
+  theme(legend.position = "none") +
+  labs(
+    title = "Percentage of top 10 names each year by sex",
+    x = "Year",
+    y = "Percentage of babies born to each sex"
+  )
+```
+
+In 2017, the last year in the data, the two lines crossed, with 7.7% for girls and 7.5% for boys.
+

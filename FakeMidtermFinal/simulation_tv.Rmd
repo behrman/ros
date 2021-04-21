@@ -1,0 +1,83 @@
+---
+title: "Regression and Other Stories: Fake midterm and final exam"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Fake dataset of 1000 students' scores on a midterm and final
+exam. See Chapter 6 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 6 Background on regression modeling
+
+## 6.5 The paradox of regression to the mean
+
+### How regression to the mean can confuse people about causal inference; demonstration using fake data
+
+Data
+
+```{r}
+set.seed(2243)
+
+n_sims <- 1000
+
+exams <- 
+  tibble(
+    true_ability = rnorm(n_sims, mean = 50, sd = 10),
+    noise_1 = rnorm(n_sims, mean = 0, sd = 10),
+    noise_2 = rnorm(n_sims, mean = 0, sd = 10),
+    midterm = true_ability + noise_1,
+    final = true_ability + noise_2
+  )
+```
+
+Fit linear regression.
+
+The option `refresh = 0` suppresses the default Stan sampling progress output. This is useful for small data with fast computation. For more complex models and bigger data, it can be useful to see the progress.
+
+```{r}
+set.seed(857)
+
+fit <- stan_glm(final ~ midterm, data = exams, refresh = 0)
+
+print(fit, digits = 2)
+```
+
+Simulated midterm and final exam scores.
+
+```{r, fig.asp=1}
+intercept <- coef(fit)[["(Intercept)"]]
+slope <- coef(fit)[["midterm"]]
+
+exams %>% 
+  ggplot(aes(midterm, final)) +
+  geom_point(size = 0.5) +
+  geom_abline(slope = slope, intercept = intercept) +
+  coord_fixed(xlim = c(0, 100), ylim = c(0, 100)) +
+  labs(
+    title = "Simulated midterm and final exam scores",
+    x = "Midterm exam score",
+    y = "Final exam score"
+  )
+```
+

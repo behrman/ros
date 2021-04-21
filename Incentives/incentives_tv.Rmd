@@ -1,0 +1,59 @@
+---
+title: "Regression and Other Stories: Electric Company"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Simple analysis of incentives data. See Chapter 19 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Incentives data
+file_incentives <- here::here("Incentives/data/incentives.csv") 
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 19 Causal inference using direct regression
+
+## 19.5 Challenges of interpreting regression coefficients as treatment effects
+
+Data from a meta-analysis of studies of incentives in sample surveys.
+
+```{r, message=FALSE}
+incentives <- read_csv(file_incentives)
+
+incentives
+```
+
+Fit linear regression.
+
+```{r}
+set.seed(447)
+
+fit <- 
+  stan_glm(
+    rr_diff ~ value + prepay + gift + burden,
+    data = incentives,
+    refresh = 0
+  )
+
+print(fit, digits = 2)
+```
+
+The above coefficients should not be directly interpreted as causal effects. Although incentive conditions were assigned randomly _within_ each experiment, the differences in the conditions were not assigned at random _between_ experiments. Thus, when comparing incentives implemented in different surveys, what we have is an observational study.

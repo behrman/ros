@@ -1,0 +1,272 @@
+---
+title: "Regression and Other Stories: ChildCare"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+ Code and figures for Infant Health and Development Program (IHDP)
+ example. See Chapter 20 in Regression and Other Stories.
+
+The intervention for low-birth-weight children is described by
+
+- Brooks-Gunn, J., Liaw, F. R., and Klebanov, P. K. (1992). Effects
+  of early intervention on cognitive function of low birth weight
+  preterm infants. Journal of Pediatrics 120, 350–359.
+- Hill, J. L., Brooks-Gunn, J., and Waldfogel, J. (2003). Sustained
+  effects of high participation in an early intervention for
+  low-birth-weight premature infants. Developmental Psychology 39,
+  730–744.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Infant Health and Development Program (IHDP) data
+file_cc2 <- here::here("Childcare/data/cc2.csv") 
+  # Variables used in analysis
+vars <- 
+  vars(
+    momage, b_marr, work_dur, prenatal, sex, first, bw, preterm, age, dayskidh,
+    ppvtr_36, st5, st9, st12, st25, st36, st42, st48, st53, income, treat,
+    black, hispanic, white, lths, hs, ltcoll, college, bwg, educ
+  )
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 20 Observational studies with measured confounders
+
+## 20.5 Example: evaluating a child care program
+
+Data
+
+```{r, message=FALSE}
+cc2 <- 
+  file_cc2 %>% 
+  read_csv() %>% 
+  janitor::clean_names() %>% 
+  select(!!! vars)
+
+glimpse(cc2)
+```
+
+The variables are:
+
+* `momage`: Mother's age at time of birth.
+* `b_marr`: Indicator for whether mother was married at birth.
+* `work_dur`: Indicator for whether mother worked in the year before she gave birth.
+* `prenatal`: Indicator for whether mother received prenatal care.
+* `sex`: Indicator for whether child was born male or female.
+* `first`: Indicator for whether child was the first born for the mother.
+* `bw`: Child's birth weight (grams).
+* `preterm`: Number of weeks preterm child was born.
+* `age`: Age of child (months).
+* `dayskidh`: Number of days child was in the hospital after being born.
+* `ppvtr_36`: IQ measured at age 36 months.
+* `st5`, `st9`, `st12`, `st25`, `st36`, `st42`, `st48`, `st53`: Indicator for state where household resides.
+* `income`: Family income one year after the child was born.
+* `treat`: Indicator for whether family was allowed to receive IHDP services (1 = yes).
+* `black`, `hispanic`, `white`: Indicators for child’s race/ethnicity.
+* `lths`, `hs`, `ltcoll`, `college`: Indicators for mother’s education at time of birth.
+* `bwg`: Indicator for whether child was born low birth weight.
+* `educ`: Mother's education at time of birth.
+
+```{r}
+summary(cc2)
+```
+
+We can see from the above that there are no `NA`s in the data.
+
+```{r}
+v <- 
+  cc2 %>% 
+  count(negative = income < 0)
+
+v
+```
+
+`income` has `r v$n[v$negative]` negative values.
+
+```{r}
+cc2 %>% 
+  select(!c(momage, bw, preterm, age, dayskidh, ppvtr_36, income, educ)) %>% 
+  unlist() %>% 
+  setequal(0:1)
+```
+
+And all variables other than `momage`, `bw`, `preterm`, `age`, `dayskidh`, `ppvtr_36`, `income`, and `educ` are indicator variables.
+
+```{r}
+cc2 %>% 
+  count(educ, lths, hs, ltcoll, college)
+```
+
+`educ` combines the indicators variables `lths`, `hs`, `ltcoll`, and `college`.
+
+### Examining imbalances for several covariates
+
+Children in Infant Health and Development Program.
+
+```{r, fig.asp=0.75}
+fit <- stan_glm(ppvtr_36 ~ bw + treat, data = cc2, refresh = 0)
+
+lines <- 
+  tribble(
+      ~treat, ~intercept, ~slope,
+      0, coef(fit)[["(Intercept)"]], coef(fit)[["bw"]],
+      1, coef(fit)[["(Intercept)"]] + coef(fit)[["treat"]], coef(fit)[["bw"]]
+    ) %>% 
+  mutate(treat = factor(treat, labels = c("Control", "Treatment")))
+
+cc2 %>% 
+  mutate(treat = factor(treat, labels = c("Control", "Treatment"))) %>% 
+  arrange(treat) %>% 
+  ggplot(aes(bw, ppvtr_36, color = treat)) +
+  geom_point(size = 0.5, alpha = 0.75) +
+  geom_abline(
+    aes(slope = slope, intercept = intercept, color = treat),
+    data = lines
+  ) +
+  coord_cartesian(xlim = c(NA, 5000)) +
+  scale_y_continuous(breaks = scales::breaks_width(20)) +
+  scale_color_discrete(direction = -1) +
+  theme(legend.position = "bottom") +
+  labs(
+    title = "Children in Infant Health and Development Program",
+    x = "Birth weight",
+    y = "Test score at age 3",
+    color = "Group"
+  )
+```
+
+Distribution of mother's education.
+
+```{r}
+educ_labels <- 
+  c(
+    "Not a high school\ngraduate",
+    "High school\ngraduate",
+    "Some college",
+    "College graduate"
+  )
+
+cc2 %>% 
+  mutate(
+    educ = factor(educ, labels = educ_labels),
+    treat = factor(treat, labels = c("Control", "Treatment"))
+  ) %>% 
+  count(educ, treat) %>% 
+  group_by(treat) %>% 
+  mutate(prop = n / sum(n)) %>% 
+  ungroup() %>% 
+  ggplot(aes(educ, prop, fill = treat)) +
+  geom_col(position = "dodge") +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1)) +
+  scale_fill_discrete(direction = -1) +
+  labs(
+    title = "Distribution of mother's education",
+    x = "Mother's education at time of birth",
+    y = "Percentage of group",
+    fill = "Group"
+  )
+```
+
+Each category includes observations in each treatment group. However, the percentages falling in each category differ when comparing treatment and control groups -- thus there is clearly an imbalance.
+
+Distribution of children's ages.
+
+```{r}
+cc2 %>% 
+  mutate(treat = factor(treat, labels = c("Control", "Treatment"))) %>% 
+  ggplot(aes(age, y = stat(density))) +
+  geom_histogram(binwidth = 20, boundary = 0) +
+  facet_grid(rows = vars(treat)) +
+  scale_x_continuous(breaks = scales::breaks_width(20)) +
+  labs(
+    title = "Distribution of children's ages",
+    x = "Age of child (months)",
+    y = "Density"
+  )
+```
+
+The averages of children's ages differ little across treatment groups, but the vast majority of control children have ages that are not represented in the treatment group.
+
+## 20.6 Subclassification and average treatment effects
+
+### Subclassification as a simple nonparameteric approach
+
+Difference in mean test scores within each subclass defined by mother's education, as well as the associated standard error and sample size in each subclass.
+
+```{r}
+v <- 
+  cc2 %>% 
+  group_by(educ) %>% 
+  summarize(
+    treatment_effect = mean(ppvtr_36[treat == 1]) - mean(ppvtr_36[treat == 0]),
+    var_treatment = var(ppvtr_36[treat == 1]),
+    n_treatment = sum(treat == 1),
+    var_control = var(ppvtr_36[treat == 0]),
+    n_control = sum(treat == 0),
+    std_error = sqrt(var_treatment / n_treatment + var_control / n_control)
+  ) %>% 
+  select(educ, treatment_effect, std_error, n_treatment, n_control)
+
+
+v %>% 
+  mutate(
+    educ = case_when(
+      educ == 1 ~ "Not a high school graduate",
+      educ == 2 ~ "High school graduate",
+      educ == 3 ~ "Some college",
+      educ == 4 ~ "College graduate",
+      TRUE ~ NA_character_
+    )
+  ) %>% 
+  knitr::kable()
+```
+
+Estimated average treatment effect.
+
+```{r}
+v <- 
+  v %>% 
+  mutate(n = n_treatment + n_control)
+
+weighted.mean(v$treatment_effect, v$n)
+```
+
+Standard error.
+
+```{r}
+sqrt(sum(v$std_error^2 * v$n^2) / sum(v$n)^2)
+```
+
+Average effect of the treatment on the treated.
+
+```{r}
+weighted.mean(v$treatment_effect, v$n_treatment)
+```
+
+Standard error.
+
+```{r}
+sqrt(sum(v$std_error^2 * v$n_treatment^2) / sum(v$n_treatment)^2)
+```
+
+---
+
+The remainder of this example uses functions defined [here](https://github.com/avehtari/ROS-Examples/tree/master/Childcare/library) and from the survey package. The code for calling these functions can be found [here](https://avehtari.github.io/ROS-Examples/Childcare/childcare.html).
+

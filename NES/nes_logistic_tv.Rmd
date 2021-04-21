@@ -1,0 +1,606 @@
+---
+title: "Regression and Other Stories: National election study"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Logistic regression, identifiability, and separation. See Chapters
+13 and 14 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # National Election Study data
+file_nes <- here::here("NES/data/nes.txt")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 13 Logistic regression
+
+## 13.1 Logistic regression with a single predictor
+
+### Example: modeling political preference given income
+
+Data
+
+```{r}
+nes <-
+  file_nes %>% 
+  read.table() %>% 
+  as_tibble()
+
+glimpse(nes)
+```
+
+Note that the data has weight variables `weight*`. It may be appropriate to perform a weighted logistic regression. But since we have no documentation for these variables, we will ignore them.
+
+We will use the following variables.
+
+```{r}
+nes <- 
+  nes %>% 
+  select(year, income, dvote, rvote)
+```
+
+```{r}
+unique(nes$year) %>% 
+  sort()
+
+nes %>% 
+  count(income)
+
+nes %>% 
+  count(dvote, rvote)
+```
+
+We are only interested in voters who voted for the Democrat (`dvote` = 1)&nbsp;or the Republican (`rvote` = 1).
+
+```{r}
+nes <- 
+  nes %>% 
+  filter(xor(dvote, rvote))
+
+nes %>% 
+  count(dvote, rvote)
+```
+
+Data for 1992 presidential election between George Bush and Bill Clinton.
+
+```{r}
+nes_1992 <- 
+  nes %>% 
+  filter(year == 1992)
+```
+
+Logistic regression of vote preference by income for 1992 election.
+
+```{r}
+set.seed(660)
+
+fit <-
+  stan_glm(
+    rvote ~ income,
+    family = binomial(link = "logit"),
+    data = nes_1992,
+    refresh = 0
+  )
+
+fit
+```
+
+Probability of voting for Republican in 1992 presidential election.
+
+```{r, fig.asp=0.75}
+v <- 
+  tibble(
+    income = seq_range(c(0.5, 5.5)),
+    .pred = predict(fit, type = "response", newdata = tibble(income))
+  )
+
+v %>% 
+  ggplot(aes(income)) +
+  geom_line(aes(y = .pred)) +
+  geom_count(aes(y = rvote), data = nes_1992) +
+  scale_x_continuous(minor_breaks = NULL) +
+  theme(legend.position = "bottom") +
+  labs(
+    title = 
+      "Probability of voting for Republican in 1992 presidential election",
+    x = "Income level (1 lowest - 5 highest)",
+    y = "Probability of voting for Rebublican",
+    size = "Number of voters in survey"
+  )
+```
+
+### Fitting the model using `stan_glm()` and displaying uncertainty in the fitted model
+
+Probability of voting for Republican in 1992 presidential election: With 50% and 90% predictive intervals.
+
+```{r, fig.asp=0.75}
+new <- tibble(income = seq_range(c(0.5, 5.5)))
+linpred <- posterior_linpred(fit, newdata = new)
+v <- 
+  new %>% 
+  mutate(
+    .pred = predict(fit, type = "response", newdata = new),
+    `5%`  = apply(linpred, 2, quantile, probs = 0.05) %>% plogis(),
+    `25%` = apply(linpred, 2, quantile, probs = 0.25) %>% plogis(),
+    `75%` = apply(linpred, 2, quantile, probs = 0.75) %>% plogis(),
+    `95%` = apply(linpred, 2, quantile, probs = 0.95) %>% plogis()
+  )
+
+v %>% 
+  ggplot(aes(income)) +
+  geom_ribbon(aes(ymin = `5%`, ymax = `95%`), alpha = 0.25) +
+  geom_ribbon(aes(ymin = `25%`, ymax = `75%`), alpha = 0.5) +
+  geom_line(aes(y = .pred)) +
+  geom_count(aes(y = rvote), data = nes_1992) +
+  scale_x_continuous(minor_breaks = NULL) +
+  theme(legend.position = "bottom") +
+  labs(
+    title = 
+      "Probability of voting for Republican in 1992 presidential election",
+    subtitle = "With 50% and 90% predictive intervals",
+    x = "Income level (1 lowest - 5 highest)",
+    y = "Probability of voting for Rebublican",
+    size = "Number of voters in survey"
+  )
+```
+
+## 13.2 Interpreting logistic regression coefficients and the divide-by-4 rule
+
+### Displaying the results of several logistic regressions
+
+Logistic regression coefficient of income by election year: With 50% uncertainty intervals.
+
+```{r}
+set.seed(660)
+
+coef_time_series <- function(.data, formula) {
+  .data %>% 
+  nest(data = !year) %>% 
+  mutate(
+    fit =
+      map(
+        data,
+        ~ stan_glm(
+          formula,
+          family = binomial(link = "logit"),
+          data = .,
+          refresh = 0
+        )
+      ),
+    coefs =
+      map(
+        fit,
+        ~ left_join(
+          enframe(coef(.), name = "var", value = "coef"),
+          enframe(se(.), name = "var", value = "se"),
+          by = "var"
+        )
+      )
+  ) %>% 
+  select(!c(data, fit)) %>% 
+  unnest(cols = coefs)
+}
+
+coefs <- coef_time_series(nes, formula = rvote ~ income)
+
+coefs %>% 
+  filter(var == "income") %>% 
+  mutate(
+    q_25 = qnorm(0.25, mean = coef, sd = se),
+    q_75 = qnorm(0.75, mean = coef, sd = se)
+  ) %>% 
+  ggplot(aes(year, coef)) +
+  geom_hline(yintercept = 0, color = "grey60") +
+  geom_line() +
+  geom_linerange(aes(ymin = q_25, ymax = q_75)) +
+  geom_point() +
+  scale_x_continuous(breaks = unique(coefs$year), minor_breaks = NULL) +
+  labs(
+    title = "Logistic regression coefficient of income by election year",
+    subtitle = "With 50% uncertainty intervals",
+    x = "Election year",
+    y = "Coefficient of income"
+  )
+```
+
+## 13.3 Predictions and comparisons
+
+### Point prediction using `predict()`
+
+Extract the simulations.
+
+```{r}
+sims <- as_tibble(fit)
+```
+
+Point prediction on probability scale for income level 5.
+
+```{r}
+new <- tibble(income = 5)
+
+pred <- predict(fit, type = "response", newdata = new)
+
+pred
+```
+
+Manual calculation.
+
+```{r}
+pred_manual <- 
+  plogis(sims$`(Intercept)` + sims$income * new$income) %>% 
+  mean()
+
+pred_manual - as.double(pred)
+```
+
+### Linear predictor with uncertainty using `posterior_linpred()`
+
+Simulations of linear predictor.
+
+```{r}
+linpred <- posterior_linpred(fit, newdata = new)
+
+dim(linpred)
+
+head(linpred)
+```
+
+Manual calculation.
+
+```{r}
+linpred_manual <- sims$`(Intercept)` + sims$income * new$income
+
+all(near(linpred_manual, linpred))
+```
+
+### Expected outcome with uncertainty using `posterior_epred()`
+
+Simulations of prediction on probability scale.
+
+```{r}
+epred <- posterior_epred(fit, newdata = new)
+
+dim(epred)
+
+head(epred)
+```
+
+Manual calculation.
+
+```{r}
+epred_manual <- plogis(sims$`(Intercept)` + sims$income * new$income)
+
+all(near(epred_manual, epred))
+```
+
+The result of `posterior_epred()` is equal to the result of `posterior_linpred()` transformed by `plogis()` to convert from the linear predictor to the probability scale.
+
+```{r}
+all(near(epred, plogis(linpred)))
+```
+
+The mean of the simulations of the prediction returned by `posterior_epred()` is equal to the prediction returned by `predict()` with `type = "response"`.
+
+```{r}
+mean(epred)
+
+mean(epred) - as.double(pred)
+```
+
+The standard deviation of the simulations of the prediction can be used as a measure of uncertainty.
+
+```{r}
+sd(epred)
+```
+
+### Predictive distribution for a new observation using `posterior_predict()`
+
+Predictive distribution for a new observation.
+
+```{r}
+set.seed(673)
+
+post_pred <- posterior_predict(fit, newdata = new)
+
+dim(post_pred)
+
+head(post_pred)
+```
+
+The mean and standard deviation of the predictive distribution.
+
+```{r}
+mean(post_pred)
+
+sd(post_pred)
+```
+
+Note that the standard deviation is much larger for the predictive distribution, which has values of 0 and 1, than for the distribution of the probabilities.
+
+### Prediction given a range of input values
+
+Point predictions.
+
+```{r}
+new <- tibble(income = 1:5)
+
+pred <- predict(fit, type = "response", newdata = new)
+
+pred
+```
+
+Simulations of linear predictors.
+
+```{r}
+linpred <- posterior_linpred(fit, newdata = new)
+
+head(linpred)
+```
+
+Simulations of predictions on probability scale.
+
+```{r}
+epred <- posterior_epred(fit, newdata = new)
+
+head(epred)
+```
+
+Predictive distributions for new observations.
+
+```{r}
+set.seed(673)
+
+post_pred <- posterior_predict(fit, newdata = new)
+
+head(post_pred)
+
+apply(post_pred, 2, mean)
+```
+
+The posterior probability, according to the fitted model, that Bush was more popular among people with income level 5 than among people with income level 4.
+
+```{r}
+mean(epred[, 5] > epred[, 4])
+```
+
+In all cases, those in the higher income level were more likely to vote for Bush.
+
+Posterior distribution for the difference in support for Bush, comparing people in the richest to the second-richest category.
+
+```{r}
+v <- quantile(epred[, 5] - epred[, 4], c(0.05, 0.25, 0.5, 0.75, 0.95))
+
+v
+```
+
+The median increase in the probability of voting for Bush in the richest category was `r v[["50%"]]` with a 90% uncertainty interval of (`r v[["5%"]]`, `r v[["95%"]]`).
+
+## 13.6 Cross validation and log score for logistic regression
+
+### Log score for logistic regression
+
+Point predictions of model on data from 1992 presidential election.
+
+```{r}
+pred <- predict(fit, type = "response")
+
+nrow(nes_1992)
+length(pred)
+
+head(pred)
+```
+
+Estimate the predictive performance of model using within-sample log score.
+
+```{r}
+sum(log(c(pred[nes_1992$rvote == 1], 1 - pred[nes_1992$rvote == 0])))
+```
+
+Estimate the predictive performance of model using leave-one-out log score (elpd_loo).
+
+```{r}
+loo(fit)
+```
+
+The LOO estimated log score (elpd_loo) of -780 is 2 lower than the within-sample log score of -778 computed above; this difference is about what we would expect, given that the fitted model has 2 parameters or degrees of freedom.
+
+# 14 Working with logistic regression
+
+## 14.6 Identification and separation
+
+Data
+
+```{r}
+nes <-
+  file_nes %>% 
+  read.table() %>% 
+  as_tibble() %>% 
+  select(year, income, black, female, dvote, rvote) %>% 
+  filter(xor(dvote, rvote))
+
+glimpse(nes)
+```
+
+We examined the variables `year`, `income`, `dvote`, and `rvote` above. Here are `black` and `female`.
+
+```{r}
+nes %>% 
+  count(black)
+
+nes %>% 
+  count(female)
+```
+
+Calculate coefficients for each year with `glm()` and `stan_glm()`.
+
+```{r}
+set.seed(630)
+
+formula <- rvote ~ female + black + income
+
+coefs <- 
+  bind_rows(
+    nes %>% 
+      nest(data = !year) %>% 
+      mutate(
+        method = "glm",
+        fit = 
+          map(
+            data,
+            ~ glm(formula, family = binomial(link = "logit"), data = .)
+          ),
+        coefs =
+          map(
+            fit,
+            ~ left_join(
+              enframe(coef(.), name = "var", value = "coef"),
+              enframe(arm::se.coef(.), name = "var", value = "se"),
+              by = "var"
+            )
+          )
+      ),
+    nes %>% 
+      nest(data = !year) %>% 
+      mutate(
+        method = "stan_glm",
+        fit = 
+          map(
+            data,
+            ~ stan_glm(
+              formula,
+              family = binomial(link = "logit"),
+              data = .,
+              refresh = 0
+            )
+          ),
+        coefs =
+          map(
+            fit,
+            ~ left_join(
+              enframe(coef(.), name = "var", value = "coef"),
+              enframe(se(.), name = "var", value = "se"),
+              by = "var"
+            )
+          )
+      )
+  )
+```
+
+The `glm()` coefficients for 1960 - 1972. Note that the `black` variable is nonidentifiable in 1964.
+
+```{r}
+for (i in seq(1960, 1972, 4)) {
+  cat(i, "\n")
+  coefs %>% 
+    filter(year == i, method == "glm") %>% 
+    pull(fit) %>% 
+    pluck(1) %>% 
+    arm::display()
+  cat("\n")
+}
+```
+
+The coefficients for both methods and all years.
+
+```{r}
+coefs <- 
+  coefs %>% 
+  select(!c(data, fit)) %>% 
+  unnest(col = coefs)
+
+coefs
+```
+
+Logistic regression coefficients by election year: With 50% uncertainty intervals.
+
+```{r, fig.asp=1.25}
+method_labels <- 
+  c(
+    glm = "Maximum likelihood estimate from glm()",
+    stan_glm = "Bayes estimate with default prior from stan_glm()"
+  )
+
+v <- 
+  coefs %>% 
+  mutate(
+    var = fct_inorder(var),
+    q_25 = qnorm(0.25, mean = coef, sd = se),
+    q_75 = qnorm(0.75, mean = coef, sd = se)
+  )
+
+v %>% 
+  ggplot(aes(year, coef)) +
+  geom_hline(yintercept = 0, color = "grey60") +
+  geom_line() +
+  geom_linerange(aes(ymin = q_25, ymax = q_75)) +
+  geom_point() +
+  facet_grid(
+    rows = vars(var),
+    cols = vars(method), 
+    scales = "free_y",
+    labeller = labeller(method = method_labels)
+  ) +
+  scale_x_continuous(breaks = seq(1952, 2000, 8)) +
+  labs(
+    title = "Logistic regression coefficients by election year",
+    subtitle = "With 50% uncertainty intervals",
+    x = "Election year",
+    y = "Coefficient"
+  )
+```
+
+The estimates above look fine except for the coefficient of `black` in 1964, where there is complete separation.
+
+```{r}
+nes %>% 
+  filter(year == 1964) %>% 
+  count(black, rvote)
+```
+
+Of the 87 African Americans in the survey in 1964, none reported a preference for the Republican candidate. The fit with `glm()` actually yielded a finite estimate for the coefficient of `black` in 1964, but that number and its standard error are essentially meaningless, being a function of how long the iterative fitting procedure goes before giving up. The maximum likelihood estimate for the coefficient of `black` that year is $-\infty$.
+
+Logistic regression coefficient for `black` by election year: With 50% uncertainty intervals.
+
+```{r}
+v %>% 
+  filter(var == "black") %>% 
+  ggplot(aes(year, coef)) +
+  geom_hline(yintercept = 0, color = "grey60") +
+  geom_line() +
+  geom_linerange(aes(ymin = q_25, ymax = q_75)) +
+  geom_point() +
+  facet_grid(
+    rows = vars(var),
+    cols = vars(method), 
+    labeller = labeller(method = method_labels)
+  ) +
+  coord_cartesian(ylim = c(-18, 0)) +
+  scale_x_continuous(breaks = seq(1952, 2000, 8)) +
+  labs(
+    title = "Logistic regression coefficient for black by election year",
+    subtitle = "With 50% uncertainty intervals",
+    x = "Election year",
+    y = "Coefficient"
+  )
+```
+
+In the coefficient estimates from `stan_glm()` with its default settings, the estimated coefficient of `black` in 1964 has been stabilized, with the other coefficients being essentially unchanged.
+

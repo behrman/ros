@@ -1,0 +1,102 @@
+---
+title: "Regression and Other Stories: Restaurant"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Demonstration of using Stan for optimization. See Appendix A in
+Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstan)
+
+# Parameters
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# A Computing in R
+
+## A.7 Some R programming
+
+### Opimization
+
+#### Restaurant pricing
+
+Net profit for restaurant.
+
+```{r}
+net_profit <- function(x) {
+  (5000 / x^2) * (x - 11)
+}
+```
+
+Restaurant net profit.
+
+```{r, fig.asp=0.75}
+v <- 
+  tibble(
+    x = seq_range(c(10, 100)),
+    y = net_profit(x)
+  )
+
+v %>% 
+  ggplot(aes(x, y)) +
+  geom_line() +
+  geom_point(data = tibble(x = 22, y = net_profit(x))) +
+  scale_x_continuous(breaks = scales::breaks_width(10)) +
+  labs(
+    title = "Restaurant net profit",
+    subtitle = 
+      str_glue("Maximum is at x = 22, y = {format(net_profit(22), digits = 2, nsmall = 2)}"),
+    x = "Price of dinner",
+    y = "Net profit"
+  )
+```
+
+Stan model for net profit.
+
+```{r}
+model_code =
+"
+parameters {
+  real <lower = 0, upper = 100> x;
+}
+model {
+  target += (5000 / x^2) * (x - 11);
+}
+"
+```
+
+Compile the Stan function and optimize it.
+
+```{r, message=FALSE, warning=FALSE, error=FALSE, results=FALSE}
+set.seed(327)
+
+fit <- 
+  stan_model(model_code = model_code) %>% 
+  optimizing()
+```
+
+```{r}
+fit
+
+fit$par - 22
+fit$value - net_profit(22)
+```
+
+The optimization returns values close to the true values. If the return code had not been zero, that would have indicated a problem with the optimization.
+

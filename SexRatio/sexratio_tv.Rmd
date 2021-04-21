@@ -1,0 +1,249 @@
+---
+title: "Regression and Other Stories: Beauty and sex ratio"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Example where an informative prior makes a difference. See Chapter 9
+in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 9 Prediction and Bayesian inference
+
+## 9.4 Example of Bayesian inference: beauty and sex ratio
+
+## 9.5 Uniform, weakly informative, and informative priors in 
+
+### Example where an informative prior makes a difference: Beauty and sex ratio
+
+Data
+
+```{r}
+sex_ratio <- 
+  tribble(
+    ~x, ~y,
+    -2, 50,
+    -1, 44,
+     0, 50,
+     1, 47,
+     2, 56
+  )
+```
+
+Least-squares regression.
+
+```{r}
+fit_lm <- lm(y ~ x, data = sex_ratio)
+
+arm::display(fit_lm)
+```
+
+Data on beauty and sex ratio.
+
+```{r}
+sex_ratio %>% 
+  ggplot(aes(x, y)) +
+  geom_point() +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1, scale = 1)) +
+  labs(
+    title = "Data on beauty and sex ratio",
+    x = "Attractiveness of parent",
+    y = "Percentage of girl babies"
+  )
+```
+
+Data and least-squares regression line.
+
+```{r}
+intercept <- coef(fit_lm)[["(Intercept)"]]
+slope <- coef(fit_lm)[["x"]]
+slope.se <- arm::se.coef(fit_lm)[["x"]]
+
+eqn <- 
+  str_glue(
+    "y = {format(intercept, digits = 1, nsmall = 1)} + ",
+    "{format(slope, digits = 1, nsmall = 1)} x\n",
+    "(Std err of slope is {format(slope.se, digits = 1, nsmall = 1)})"
+  )
+
+sex_ratio %>% 
+  ggplot(aes(x, y)) +
+  geom_point() +
+  geom_abline(slope = slope, intercept = intercept) +
+  annotate("text", x = 0.2, y = 53, label = eqn, hjust = 0) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1, scale = 1)) +
+  labs(
+    title = "Data and least-squares regression line",
+    x = "Attractiveness of parent",
+    y = "Percentage of girl babies"
+  )
+```
+
+#### Bayes regression with weakly informative prior
+
+Fit linear regression with default weakly informative prior.
+
+```{r}
+set.seed(264)
+
+fit_bayes_default <- stan_glm(y ~ x, data = sex_ratio, refresh = 0)
+
+fit_bayes_default
+```
+
+Fit prior summary.
+
+```{r}
+prior_summary(fit_bayes_default)
+```
+
+Posterior simulations under default prior.
+
+```{r}
+sims_default <- as_tibble(fit_bayes_default)
+
+coefs_default <- 
+  tibble(
+    `(Intercept)` = coef(fit_bayes_default)[["(Intercept)"]],
+    x = coef(fit_bayes_default)[["x"]]
+  )
+
+sims_default %>% 
+  ggplot(aes(`(Intercept)`, x)) +
+  geom_point(size = 0.1) +
+  geom_point(data = coefs_default, color = "red", size = 1.5) +
+  labs(
+    title = "Posterior simulations under default prior",
+    x = "Intercept",
+    y = "Slope"
+  )
+```
+
+Bayes regression line and posterior uncertainty given default prior.
+
+```{r}
+set.seed(264)
+
+n_lines <- 100
+
+sex_ratio %>% 
+  ggplot(aes(x, y)) +
+  geom_abline(
+    aes(slope = x, intercept = `(Intercept)`),
+    data = sims_default %>% slice_sample(n = n_lines),
+    alpha = 0.25
+  ) +
+  geom_abline(
+    aes(slope = x, intercept = `(Intercept)`),
+    data = coefs_default,
+    color = "red"
+  ) +
+  geom_point(color = "white", size = 2) +
+  geom_point() +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1, scale = 1)) +
+  labs(
+    title =
+      "Bayes regression line and posterior uncertainty given default prior",
+    x = "Attractiveness of parent",
+    y = "Percentage of girl babies"
+  )
+```
+
+#### Bayes regression with informative prior
+
+Fit linear regression with informative prior.
+
+```{r}
+set.seed(264)
+
+fit_bayes_inform <- 
+  stan_glm(
+    y ~ x,
+    data = sex_ratio,
+    refresh = 0,
+    prior = normal(location = 0, scale = 0.2),
+    prior_intercept = normal(location = 48.8, scale = 0.5)
+  )
+
+fit_bayes_inform
+```
+
+Fit prior summary.
+
+```{r}
+prior_summary(fit_bayes_inform)
+```
+
+Posterior simulations under informative prior.
+
+```{r}
+sims_inform <- as_tibble(fit_bayes_inform)
+
+coefs_inform <- 
+  tibble(
+    `(Intercept)` = coef(fit_bayes_inform)[["(Intercept)"]],
+    x = coef(fit_bayes_inform)[["x"]]
+  )
+
+sims_inform %>% 
+  ggplot(aes(`(Intercept)`, x)) +
+  geom_blank(data = sims_default) +
+  geom_point(size = 0.1) +
+  geom_point(data = coefs_inform, color = "red", size = 1.5) +
+  labs(
+    title = "Posterior simulations under informative prior",
+    x = "Intercept",
+    y = "Slope"
+  )
+```
+
+Bayes regression line and posterior uncertainty given informative prior.
+
+```{r}
+set.seed(264)
+
+n_lines <- 100
+
+sex_ratio %>% 
+  ggplot(aes(x, y)) +
+  geom_abline(
+    aes(slope = x, intercept = `(Intercept)`),
+    data = sims_inform %>% slice_sample(n = n_lines),
+    alpha = 0.25
+  ) +
+  geom_abline(
+    aes(slope = x, intercept = `(Intercept)`),
+    data = coefs_inform,
+    color = "red"
+  ) +
+  geom_point(color = "white", size = 2) +
+  geom_point() +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1, scale = 1)) +
+  labs(
+    title =
+      "Bayes regression line and posterior uncertainty given informative prior",
+    x = "Attractiveness of parent",
+    y = "Percentage of girl babies"
+  )
+```
+

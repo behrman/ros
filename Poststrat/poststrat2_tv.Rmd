@@ -1,0 +1,216 @@
+---
+title: "Regression and Other Stories: Poststratification 2"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Demonstrate poststratification with simulated census and poll data.
+See Chapter 17 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 17 Poststratification and missing-data imputation
+
+## 17.2 Fake-data simulation for regression and poststratification
+
+### Creating the artificial world
+
+Simulation parameters:
+
+* `pop_prop`: Proportion of the population
+* `response`: Response rate relative to `response_baseline`
+* `coef`: Coefficient of formula for probability of "Yes" response to survey
+
+```{r}
+pop <- 250e6
+response_baseline <- 0.1
+coef_intercept <- 0.6
+
+params <- 
+  tribble(
+    ~var,        ~value,     ~pop_prop, ~response, ~coef,
+    "sex",       "Female",        0.52,       1.0,     0,
+    "sex",       "Male",          0.48,       0.8,  -0.2,
+    "age",       "18 - 29",       0.20,       1.0,     0,
+    "age",       "30 - 44",       0.25,       1.2,  -0.2,
+    "age",       "45 - 64",       0.30,       1.6,  -0.3,
+    "age",       "65+",           0.25,       2.5,  -0.4,
+    "ethnicity", "White",         0.70,       1.0,     0,
+    "ethnicity", "Black",         0.10,       0.8,   0.6,
+    "ethnicity", "Hispanic",      0.10,       0.7,   0.3,
+    "ethnicity", "Other",         0.10,       0.6,   0.3
+  )
+```
+
+Function to return simulation parameter.
+
+```{r}
+param <- function(var_, value_, param) {
+  params %>% 
+    filter(var == var_, value == value_) %>% 
+    pull({{param}})
+}
+
+param("sex", "Female", pop_prop)
+```
+
+Poststratification cells with assumed population, response rate, and probability of "Yes" response to survey.
+
+```{r}
+poststrat <- 
+  expand_grid(
+    sex = c("Female", "Male"),
+    age = c("18 - 29", "30 - 44", "45 - 64", "65+"),
+    ethnicity = c("White", "Black", "Hispanic", "Other")
+  ) %>% 
+  mutate(
+    across(c(sex, age, ethnicity), fct_inorder),
+    n = 
+      pmap_dbl(
+        list(sex, age, ethnicity),
+        ~ pop * param("sex", ..1, pop_prop) * param("age", ..2, pop_prop) *
+          param("ethnicity", ..3, pop_prop)
+      ),
+    response =
+      pmap_dbl(
+        list(sex, age, ethnicity),
+        ~ response_baseline * param("sex", ..1, response) *
+          param("age", ..2, response) * param("ethnicity", ..3, response)
+      ),
+    yes_prob =
+      pmap_dbl(
+        list(sex, age, ethnicity),
+        ~ plogis(
+          coef_intercept + param("sex", ..1, coef) + param("age", ..2, coef) +
+            param("ethnicity", ..3, coef)
+        )
+      )
+  )
+```
+
+We then sample from the assumed population with the assumed response rate.
+
+```{r}
+set.seed(457)
+
+n_people <- 1000
+
+people <- 
+  sample(
+    nrow(poststrat),
+    size = n_people,
+    replace = TRUE, 
+    prob = poststrat$n * poststrat$response
+  )
+```
+
+Check that each cell was sampled.
+
+```{r}
+setequal(seq_len(nrow(poststrat)), people)
+```
+
+Add proportion of population and proportion of sample for each cell in poststratification table.
+
+```{r}
+poststrat <- 
+  poststrat %>% 
+  mutate(
+    n_prop = n / sum(n),
+    cell = row_number()
+  ) %>% 
+  left_join(
+    tibble(cell = people) %>% count(cell, name = "n_sample"),
+    by = "cell"
+  ) %>% 
+  mutate(sample_prop = n_sample / n_people) %>% 
+  select(!c(cell, n_sample))
+
+poststrat %>% 
+  knitr::kable()
+```
+
+Simulate survey data.
+
+```{r}
+set.seed(435)
+
+data <- 
+  poststrat %>% 
+  slice(people) %>% 
+  mutate(y = rbinom(n(), size = 1, prob = yes_prob)) %>% 
+  select(y, sex, age, ethnicity)
+```
+
+### Performing regression and poststratification
+
+First, we fit a logistic regression, predicting the survey response given sex, age, and ethnicity, with no interaction:
+
+```{r}
+set.seed(907)
+
+fit <- 
+  stan_glm(
+    y ~ sex + age + ethnicity,
+    family = binomial(link = "logit"),
+    data = data,
+    refresh = 0
+  )
+
+fit
+```
+
+Estimate the proportion of "Yes" responses for each cell in the poststratification table.
+
+```{r}
+poststrat <- 
+  poststrat %>% 
+  mutate(yes_pred = predict(fit, type = "response", newdata = .))
+
+poststrat %>% 
+  select(sex, age, ethnicity, n, n_prop, yes_prob, yes_pred) %>% 
+  knitr::kable()
+```
+
+Finally, we poststratify to estimate the proportion of the entire population that would answer "Yes" to the survey:
+
+```{r}
+poststrat %>% 
+  summarize(yes_pop = sum(yes_pred * n_prop))
+```
+
+The above gives us the point estimate; to get inferential uncertainty, we can work with the matrix of posterior simulations:
+
+```{r}
+tibble(
+  yes_pop = posterior_epred(fit, newdata = poststrat) %*% poststrat$n_prop
+) %>% 
+  summarize(across(yes_pop, list(mean = mean, sd = sd)))
+```
+
+The true proportion of the population that would answer "Yes" to the survey, based upon the assumed probabilities of a "Yes" response for each cell, is:
+
+```{r}
+poststrat %>% 
+  summarize(yes_pop_true = sum(yes_prob * n_prop))
+```
+

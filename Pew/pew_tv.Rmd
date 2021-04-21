@@ -1,0 +1,198 @@
+---
+title: "Regression and Other Stories: Pew"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Miscellaneous analyses using raw Pew data. See Chapter 2 in
+Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(haven)
+
+# Parameters
+  # Pew data on political ideology and party identification
+file_pew <- here::here("Pew/data/pew_research_center_june_elect_wknd_data.dta")
+  # Common code
+file_common <- here::here("_common.R")
+  
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 2 Data and measurement
+
+## 2.1 Examining where data come from
+
+### Details of measurement can be important
+
+Data
+
+```{r}
+pew <- 
+  read_dta(file_pew) %>% 
+  mutate(across(where(is.labelled), as_factor))
+
+glimpse(pew)
+```
+
+Income.
+
+```{r}
+pew %>% 
+  count(income, income2)
+```
+
+We'll use `income`, since it provides greater resolution at high incomes. We'll format `income` for plotting and recode "dk/refused" as `NA`.
+
+```{r}
+income_recode <- 
+  levels(pew$income) %>% 
+  set_names(
+    levels(pew$income) %>% 
+      str_replace("less", "Less") %>% 
+      str_replace("-", " - ")
+  )
+
+pew <- 
+  pew %>% 
+  mutate(income = na_if(income, "dk/refused") %>% fct_recode(!!! income_recode))
+```
+
+Party identification.
+
+```{r}
+pew %>% 
+  count(party, partyln, sort = TRUE)
+```
+
+We'll combine `party` and `partyln` into one variable `party_5`
+
+```{r}
+pew <- 
+  pew %>% 
+  mutate(
+    party_5 =
+      case_when(
+        party == "democrat" ~ "Democrat",
+        party == "republican" ~ "Republican",
+        partyln == "lean democrat" ~ "Lean Democrat",
+        partyln == "lean republican" ~ "Lean Republican",
+        party == "independent" ~ "Independent",
+        TRUE ~ NA_character_
+      ) %>% 
+      fct_relevel(
+        "Democrat",
+        "Lean Democrat",
+        "Independent",
+        "Lean Republican",
+        "Republican"
+      )
+  )
+```
+
+```{r}
+pew %>% 
+  count(party, partyln, party_5, sort = TRUE)
+```
+
+Political ideology.
+
+```{r}
+pew %>% 
+  count(ideo)
+```
+
+Again, we'll format `ideo` for plotting and recode "dk/refused" as `NA`.
+
+```{r}
+ideo_recode <- 
+  levels(pew$ideo) %>% 
+  set_names(levels(pew$ideo) %>% str_to_title())
+
+pew <-  
+  pew %>% 
+  mutate(ideo = na_if(ideo, "dk/refused") %>% fct_recode(!!! ideo_recode))
+```
+
+Self-declared political ideology by income in 2008.
+
+```{r, fig.asp=0.8}
+v <- 
+  pew %>% 
+  drop_na(income, ideo) %>% 
+  group_by(income, ideo) %>% 
+  summarize(n = sum(weight)) %>% 
+  mutate(prop = n / sum(n)) %>% 
+  ungroup()
+
+v %>% 
+  ggplot(aes(income, prop, group = ideo)) +
+  geom_line(aes(color = ideo)) +
+  ggrepel::geom_text_repel(
+    aes(label = ideo),
+    data = . %>% slice_max(order_by = income, n = 1),
+    nudge_x = 0.2,
+    direction = "y",
+    hjust = 0
+  ) +
+  scale_x_discrete(expand = expansion(mult = c(0.1, 0.35))) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1)) +
+  coord_cartesian(ylim = c(0, NA)) +
+  theme(
+    axis.text.x = element_text(angle = -45, hjust = 0),
+    legend.position = "none"
+  ) +
+  labs(
+    title = "Self-declared political ideology by income in 2008",
+    x = "Income",
+    y = "Percentage of income group"
+  )
+```
+
+Self-declared party identification by income in 2008.
+
+```{r, fig.asp=0.8}
+v <- 
+  pew %>% 
+  drop_na(income, party_5) %>% 
+  group_by(income, party_5) %>% 
+  summarize(n = sum(weight)) %>% 
+  mutate(prop = n / sum(n)) %>% 
+  ungroup()
+
+v %>% 
+  ggplot(aes(income, prop, group = party_5)) +
+  geom_line(aes(color = party_5)) +
+  ggrepel::geom_text_repel(
+    aes(label = party_5),
+    data = . %>% slice_max(order_by = income, n = 1),
+    nudge_x = 0.2,
+    direction = "y",
+    hjust = 0
+  ) +
+  scale_x_discrete(expand = expansion(mult = c(0.1, 0.35))) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1)) +
+  scale_color_discrete(direction = -1) +
+  coord_cartesian(ylim = c(0, NA)) +
+  theme(
+    axis.text.x = element_text(angle = -45, hjust = 0),
+    legend.position = "none"
+  ) +
+  labs(
+    title = "Self-declared party identification by income in 2008",
+    x = "Income",
+    y = "Percentage of income group"
+  )
+```
+

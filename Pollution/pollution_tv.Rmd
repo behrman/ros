@@ -1,0 +1,48 @@
+---
+title: "Regression and Other Stories: Pollution"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+A pollution data set. See Chapter 12 in Regression and Other
+Stories.
+
+Source: McDonald, G.C. and Schwing, R.C. (1973) 'Instabilities of
+regression estimates relating air pollution to mortality',
+Technometrics, vol.15, 463-482. See data/pollution.txt for the
+explanation of the variables.
+
+-------------
+
+# 12 Transformations and regression
+
+## 12.9 Exercises
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+
+# Parameters
+  # Data on air polution and mortality
+file_pollution <- here::here("Pollution/data/pollution.csv")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+Data.
+
+```{r, message=FALSE}
+pollution <- read_csv(file_pollution)
+
+glimpse(pollution)
+```
+

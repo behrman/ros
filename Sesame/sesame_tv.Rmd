@@ -1,0 +1,275 @@
+---
+title: "Regression and Other Stories: Sesame street"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Causal analysis of Sesame Street experiment. See Chapters 18 and 21
+in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(brms)
+library(rstanarm)
+
+# Parameters
+  # Seed
+SEED <- 1234
+  # Results of educational experiment
+file_sesame <- here::here("Sesame/data/sesame.csv")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 18 Causal inference and randomized experiments
+
+## 18.8 Exercises
+
+Data
+
+```{r, message=FALSE}
+sesame <- 
+  file_sesame %>% 
+  read_csv() %>% 
+  mutate(
+    site =
+      case_when(
+        `_Isite_2` == 1 ~ 2,
+        `_Isite_3` == 1 ~ 3,
+        `_Isite_4` == 1 ~ 4,
+        `_Isite_5` == 1 ~ 5,
+        TRUE ~ 1
+      ) %>% 
+      factor()
+  ) %>% 
+  relocate(site, .before = `_Isite_2`)
+
+glimpse(sesame)
+```
+
+Let's check the derived variable `site`.
+
+```{r}
+sesame %>% 
+  count(site, across(starts_with("_Isite")))
+```
+
+
+# 21 Additional topics in causal inference
+
+## 21.1 Estimating causal effects indirectly using instrumental variables
+
+### Instrumental variables estimate: Sesame Street
+
+Let's first look at the effect of encouraging children to watch Sesame Street.
+
+```{r}
+v <- 
+  sesame %>% 
+  count(encouraged, watched) %>% 
+  group_by(encouraged) %>% 
+  mutate(watched_prop = n / sum(n)) %>% 
+  ungroup()
+
+v
+```
+
+Without any encouragement, `r round(100 * (v %>% filter(encouraged == 0, watched == 1) %>% pull(watched_prop)))`% of children still watched Sesame Street. With encouragement, that percentage increased to `r round(100 * (v %>% filter(encouraged == 1, watched == 1) %>% pull(watched_prop)))`%
+
+We now calculate an estimate of the effect of watching Sesame Street for the children who received encouragement and who in turn actually watched the show, the compliers.
+
+We first estimate the percentage of children actually induced to watch Sesame Street by the intervention, which is the coefficient on the instrument (`encouraged`), in the following regression:
+
+```{r}
+set.seed(264)
+
+fit_1a <- stan_glm(watched ~ encouraged, data = sesame, refresh = 0)
+
+print(fit_1a, digits = 2)
+```
+
+The estimated coefficient of `encouraged` here is `r format(coef(fit_1a)[["encouraged"]], digits = 2, nsmall = 2)`. This is simply the difference in the proportion of children who watched Sesame Street when encouraged vs. when not encouraged:
+
+```{r}
+v %>% 
+  filter(watched == 1) %>% 
+  summarize(
+    watched_diff = watched_prop[encouraged == 1] - watched_prop[encouraged == 0]
+  )
+```
+
+We then compute the intent-to-treat estimate, obtained in this case using the regression of the outcome (the _post_-treatment measurement of the _letter_ recognition task, `postlet`) on the instrument:
+
+```{r}
+set.seed(264)
+
+fit_1b <- stan_glm(postlet ~ encouraged, data = sesame, refresh = 0)
+
+print(fit_1b, digits = 2)
+```
+
+The estimated coefficient of `encouraged` in this regression is `r format(coef(fit_1b)[["encouraged"]], digits = 1, nsmall = 1)`, which we then "inflate" by dividing by the percentage of children affected by the intervention:
+
+```{r}
+wald_est <- coef(fit_1b)[["encouraged"]] / coef(fit_1a)[["encouraged"]]
+
+wald_est
+```
+
+This ratio is sometimes called the _Wald estimate_.
+
+## 21.2 Instrumental variables in a regression framework
+
+### Two-stage least squares: Sesame Street
+
+The first step is to regress the "treatment" variable -- an indicator for regular watching (`watched`) -- on the randomized instrument, encouragement to watch (`encouraged`). This is the same as `fit_1a` above, but we run again here and relabel to indicate that in this framework it is our first-stage model.
+
+```{r}
+set.seed(264)
+
+fit_2a <- stan_glm(watched ~ encouraged, data = sesame, refresh = 0)
+
+print(fit_2a, digits = 2)
+```
+
+Add the predicted values for `watched`.
+
+```{r}
+sesame <- 
+  sesame %>% 
+  mutate(watched_pred_2a = predict(fit_2a))
+
+summary(sesame$watched_pred_2a)
+```
+
+The second step is to regress the letter recognition outcome on the predicted values for `watched`.
+
+```{r}
+set.seed(264)
+
+fit_2b <- stan_glm(postlet ~ watched_pred_2a, data = sesame, refresh = 0)
+
+print(fit_2b, digits = 2)
+```
+
+Here the coefficient of `watched_pred_2a` is the effect of watching Sesame Street on letter recognition for those who would watch if encouraged but not otherwise (compliers). This second-stage regression does not give the correct standard error, however, as we discuss below.
+
+### Adjusting for covariates in an instrument variables framework
+
+The randomization for this particular experiment took place within sites and settings; it is therefore appropriate to adjust for these covariates in estimating the treatment effect. Additionally, pre-treatment scores are available that are highly predictive of post-test scores.
+
+The first step of two-stage approach adjusting for these covariates:
+
+```{r}
+set.seed(264)
+
+fit_3a <- 
+  stan_glm(
+    watched ~ encouraged + prelet + site + setting, 
+    data = sesame, 
+    refresh = 0
+  )
+
+print(fit_3a, digits = 2)
+```
+
+Add the predicted values for `watched`.
+
+```{r}
+sesame <- 
+  sesame %>% 
+  mutate(watched_pred_3a = predict(fit_3a))
+
+summary(sesame$watched_pred_3a)
+```
+
+The second step is to regress the letter recognition outcome on the predicted values for `watched`.
+
+```{r}
+set.seed(264)
+
+fit_3b <-
+  stan_glm(
+    postlet ~ watched_pred_3a + prelet + site + setting, 
+    data = sesame, 
+    refresh = 0
+  )
+
+print(fit_3b, digits = 2)
+```
+
+The estimated effect of watching Sesame Street on the compliers is about `r format(coef(fit_3b)[["watched_pred_3a"]], digits = 1, nsmall = 1)` points on the letter recognition test. Again, we do not trust this standard error and will discuss next how to appropriately adjust it for the two stages of estimation.
+
+### Standard errors for instrumental variables estimates
+
+We show here how to adjust the standard error to account for the uncertainty in both stages of the model.
+
+```{r}
+resid <- residuals(fit_3b)
+x_adj <- model.matrix(fit_3b)
+x_adj[, "watched_pred_3a"] <- sesame$watched
+resid_adj <- sesame$postlet - x_adj %*% coef(fit_3b)
+se_adj <- 
+  se(fit_3b)[["watched_pred_3a"]] * sqrt(sum(resid^2) / sum(resid_adj^2))
+
+se_adj
+```
+
+In this example, the resulting standard error of `r format(se_adj, digits = 2, nsmall = 2)` is slightly larger than the unadjusted standard error of `r format(se(fit_3b)[["watched_pred_3a"]], digits = 2, nsmall = 2)`.
+
+### Performing two-stage least squares automatically using brms
+
+It is also possible to perform a Bayesian version of the two-stage least squares model directly using brms. Here is how to estimate the effect of regularly watching Sesame Street on post-treatment letter recognition using encouragement as an instrument:
+
+```{r, message=FALSE, warning=FALSE, error=FALSE, results=FALSE}
+set.seed(264)
+
+fit_brm_1 <- 
+  brm(
+    formula = bf(watched ~ encouraged) + bf(postlet ~ watched),
+    data = sesame,
+    refresh = 0,
+    seed = SEED
+  )
+```
+
+```{r}
+fit_brm_1
+```
+
+The resulting estimate is the coefficient `postlet_watched`, which is the instrumental variables estimate of `watched` on `postlet`; the estimate is `r format(fixef(fit_brm_1)["postlet_watched", "Estimate"], digits = 1, nsmall = 1)` with a standard error of `r format(fixef(fit_brm_1)["postlet_watched", "Est.Error"], digits = 1, nsmall = 1)`.
+
+To incorporate other pre-treatment variables as controls, we must include them in both stages of the regression model; for example,
+
+```{r, message=FALSE, warning=FALSE, error=FALSE, results=FALSE}
+set.seed(264)
+
+fit_brm_2 <- 
+  brm(
+    formula = 
+      bf(watched ~ encouraged + prelet + setting + site) +
+      bf(postlet ~ watched + prelet + setting + site),
+    data = sesame,
+    refresh = 0,
+    seed = SEED
+  )
+```
+
+```{r}
+fit_brm_2
+```
+
+The resulting estimate is the coefficient `postlet_watched`, which is the instrumental variables estimate of `watched` on `postlet`; the estimate is `r format(fixef(fit_brm_2)["postlet_watched", "Estimate"], digits = 1, nsmall = 1)` with a standard error of `r format(fixef(fit_brm_2)["postlet_watched", "Est.Error"], digits = 1, nsmall = 1)`.
+

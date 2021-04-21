@@ -1,0 +1,176 @@
+---
+title: "Regression and Other Stories: Mile"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r format(Sys.Date())`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Trend of record times in the mile run. See Chapter 3 and Appendix A in
+Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Mile run world record times
+file_mile <- here::here("Mile/data/mile.csv")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 3 Some basic methods in mathematics and probability
+
+## 3.2 Graphing a line
+
+Data
+
+```{r, message=FALSE}
+mile <- read_csv(file_mile)
+
+mile
+```
+
+Fit linear model.
+
+The option `refresh = 0` suppresses the default Stan sampling progress output. This is useful for small data with fast computation. For more complex models and bigger data, it can be useful to see the progress.
+
+```{r}
+set.seed(733)
+
+fit <- stan_glm(seconds ~ year, data = mile, refresh = 0)
+
+print(fit, digits = 2)
+```
+
+Example of increasing trend.
+
+```{r}
+f <- function(x) {
+  intercept + slope * x
+}
+
+intercept <- 0.15
+slope <- 0.4
+
+v <- tibble(x = c(0, 2), y = f(x))
+
+v %>% 
+  ggplot(aes(x, y)) +
+  geom_blank() +
+  geom_abline(slope = slope, intercept = intercept) +
+  scale_x_continuous(breaks = 0:2) +
+  scale_y_continuous(breaks = f(0:2), labels = c("a", "a + b", "a + 2 b")) +
+  labs(title = "y = a + b x (with b > 0)")
+```
+
+Example of decreasing trend.
+
+```{r}
+intercept <- 0.95
+slope <- -0.4
+
+v <- tibble(x = c(0, 2), y = f(x))
+
+v %>% 
+  ggplot(aes(x, y)) +
+  geom_blank() +
+  geom_abline(slope = slope, intercept = intercept) +
+  scale_x_continuous(breaks = 0:2) +
+  scale_y_continuous(breaks = f(0:2), labels = c("a", "a + b", "a + 2 b")) +
+  labs(title = "y = a + b x (with b < 0)")
+```
+
+Approximate trend of record times in the mile run.
+
+```{r}
+intercept <- coef(fit)[["(Intercept)"]]
+slope <- coef(fit)[["year"]]
+
+eqn <- 
+  str_glue(
+    "y = {format(intercept, digits = 0)} + ",
+    "{format(slope, digits = 3, nsmall = 3)} x"
+  )
+
+mile %>% 
+  ggplot(aes(year, seconds)) +
+  geom_point() +
+  geom_abline(slope = slope, intercept = intercept) +
+  annotate("text", x = 1956, y = 242.5, label = eqn, hjust = 0) +
+  scale_x_continuous(breaks = scales::breaks_width(20)) +
+  labs(
+    title = "Approximate trend of record times in the mile run",
+    x = "Year",
+    y = "Record time (seconds)"
+  )
+```
+
+# A Computing in R
+
+## A.5 Making graphs
+
+### Graphing data
+
+#### Scatterplots
+
+World record times in the mile run.
+
+```{r}
+plot <- 
+  mile %>% 
+  ggplot(aes(yr, seconds)) +
+  geom_point() +
+  scale_x_continuous(breaks = scales::breaks_width(20)) +
+  labs(
+    title = "World record times in the mile run",
+    x = "Year",
+    y = "Record time (seconds)"
+  )
+
+plot
+```
+
+#### Fitting a line to the data
+
+We can fit a linear trend of world record times as follows:
+
+```{r}
+set.seed(733)
+
+fit <- stan_glm(seconds ~ year, data = mile, refresh = 0)
+```
+
+Here is the result:
+
+```{r}
+fit
+```
+
+Here is the result with more significant digits:
+
+```{r}
+print(fit, digits = 2)
+```
+
+We can add the linear regression line to the scatterplot:
+
+```{r}
+intercept <- coef(fit)[["(Intercept)"]]
+slope <- coef(fit)[["year"]]
+
+plot +
+  geom_abline(slope = slope, intercept = intercept)
+```
+

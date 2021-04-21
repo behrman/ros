@@ -1,0 +1,45 @@
+---
+title: "Regression and Other Stories: Helicopters"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Example data file for helicopter flying time exercise. See Chapter
+1 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+
+# Parameters
+  # U.S. Presidential election results and GDP growth
+file_helicopters <- here::here("Helicopters/data/helicopters.txt")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 1 Overview
+
+## 1.8 Exercises
+
+Data
+
+```{r}
+helicopters <- 
+  file_helicopters %>% 
+  read.table(header = TRUE) %>% 
+  as_tibble(.name_repair = str_to_lower)
+
+helicopters
+```

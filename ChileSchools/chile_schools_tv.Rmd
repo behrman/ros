@@ -1,0 +1,296 @@
+---
+title: "Regression and Other Stories: ChileSchools"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Code and figures for ChileSchools example. See Chapter 21 in
+Regression and Other Stories.
+
+Data are from
+
+- Chay, K. Y., McEwan, P. J., and Urquiola, M. (2005). The central
+  role of noise in evaluating interventions that use test scores to
+  rank schools. American Economic Review 95, 1237–1258.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Seed
+SEED <- 733
+  # Results of educational experiment
+file_chile <- here::here("ChileSchools/data/chile.csv") 
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 21 Additional topics in causal inference
+
+## 21.3 Regression discontinuity: known assignment mechanism but no overlap
+
+### Example: The effect of an educational program on test scores in Chile
+
+Data
+
+```{r, message=FALSE}
+chile_all <- read_csv(file_chile)
+
+glimpse(chile_all)
+```
+
+Check consistency of `eligible` and `rule2`.
+
+```{r}
+chile_all %>% 
+  count(eligible, rule2 < 0, rule2 == 0, rule2 > 0)
+```
+
+`eligible` accurately reflects whether `rule2` is greater than or less than 0.
+
+#### Basic regression discontinuity analysis
+
+Fit linear regression on all data.
+
+```{r}
+set.seed(SEED)
+
+fit_1 <- stan_glm(read92 ~ eligible + rule2, data = chile_all, refresh = 0)
+
+fit_1
+```
+
+Intent-to-treat effect of exposure to P-900 on schools in Chile: All data.
+
+```{r, fig.asp=0.75}
+coefs <- 
+  tribble(
+    ~eligible, ~intercept, ~slope,
+    0, coef(fit_1)[["(Intercept)"]], coef(fit_1)[["rule2"]],
+    1, coef(fit_1)[["(Intercept)"]] + coef(fit_1)[["eligible"]],
+      coef(fit_1)[["rule2"]]
+  )
+
+plot <- function(data, coefs, all = FALSE, binned = FALSE) {
+  segments <- 
+    coefs %>% 
+    mutate(
+      x = if_else(eligible == 1, min(data$rule2), 0),
+      xend = if_else(eligible == 1, 0, max(data$rule2)),
+      y = intercept + slope * x,
+      yend = intercept + slope * xend
+    )
+
+  size <- if_else(binned, 3, if_else(all, 0.75, 1.5))
+  alpha <- if_else(binned, 1, if_else(all, 0.75, 1))
+  breaks_width <- if_else(all, 10, 2)
+  
+  data %>%
+    ggplot(aes(rule2, read92)) +
+    geom_point(aes(color = factor(eligible)), size = size, alpha = alpha) +
+    geom_vline(xintercept = 0) +
+    geom_segment(aes(x, y, xend = xend, yend = yend), data = segments) +
+    scale_x_continuous(breaks = scales::breaks_width(breaks_width)) +
+    scale_color_discrete(
+      breaks = c(1, 0),
+      labels = c("Eligible", "Not eligible"),
+      direction = -1
+    ) +
+    theme(legend.position = "bottom") +
+    labs(
+      title = "Intent-to-treat effect of exposure to P-900 on schools in Chile",
+      x = "Assignment variable",
+      color = "School eligibility"
+    )
+}
+
+chile_all %>% 
+  plot(coefs = coefs, all = TRUE) +
+  labs(
+    subtitle = "All data",
+    y = "Post-test score"
+  )
+```
+
+Data near cutoff.
+
+```{r}
+chile_5 <- 
+  chile_all %>% 
+  filter(abs(rule2) <= 5)
+```
+
+Fit linear regression on data near cutoff.
+
+```{r}
+set.seed(SEED)
+
+fit_2 <- stan_glm(read92 ~ eligible + rule2, data = chile_5, refresh = 0)
+
+fit_2
+```
+
+Intent-to-treat effect of exposure to P-900 on schools in Chile: Data near cutoff.
+
+```{r, fig.asp=0.75}
+coefs <- 
+  tribble(
+    ~eligible, ~intercept, ~slope,
+    0, coef(fit_2)[["(Intercept)"]], coef(fit_2)[["rule2"]],
+    1, coef(fit_2)[["(Intercept)"]] + coef(fit_2)[["eligible"]],
+      coef(fit_2)[["rule2"]]
+  )
+
+chile_5 %>% 
+  plot(coefs = coefs) +
+  labs(
+    subtitle = "Data near cutoff",
+    y = "Post-test score"
+  )
+```
+
+#### Including other pre-treatment variables as regression predictors
+
+Fit linear regression on data near cutoff, including pre-treatment variables.
+
+```{r}
+set.seed(SEED)
+
+fit_3 <- 
+  stan_glm(
+    read92 ~ eligible + rule2 + read88 + math88,
+    data = chile_5,
+    refresh = 0
+  )
+
+fit_3
+```
+
+Intent-to-treat effect of exposure to P-900 on schools in Chile: Data near cutoff.
+
+```{r, fig.asp=0.75}
+v <- 
+  chile_5 %>% 
+  mutate(
+    read92 = 
+      read92 - coef(fit_3)[["read88"]] * (read88 - mean(read88)) -
+      coef(fit_3)[["math88"]] * (math88 - mean(math88))
+  )
+
+intercept_0 <- 
+  coef(fit_3)[["(Intercept)"]] + 
+  coef(fit_3)[["read88"]] * mean(chile_5$read88) +
+  coef(fit_3)[["math88"]] * mean(chile_5$math88)
+
+coefs <- 
+  tribble(
+    ~eligible, ~intercept, ~slope,
+    0, intercept_0, coef(fit_3)[["rule2"]],
+    1, intercept_0 + coef(fit_3)[["eligible"]], coef(fit_3)[["rule2"]]
+  )
+
+v %>% 
+  plot(coefs = coefs) +
+  labs(
+    subtitle = "Data near cutoff",
+    y = "Adjusted post-test score"
+  )
+```
+
+Intent-to-treat effect of exposure to P-900 on schools in Chile: Data near cutoff binned
+
+```{r, fig.asp=0.75}
+n_bins <- 20
+
+v <- 
+  chile_5 %>% 
+  mutate(
+    read92 = 
+      read92 - coef(fit_3)[["read88"]] * (read88 - mean(read88)) -
+      coef(fit_3)[["math88"]] * (math88 - mean(math88)),
+    bin = 
+      cut(
+        rule2,
+        breaks = seq(-5, 5, length.out = n_bins + 1),
+        include.lowest = TRUE
+      )
+  ) %>% 
+  group_by(bin) %>% 
+  summarize(
+    eligible = as.double(min(rule2) < 0),
+    rule2 = mean(rule2),
+    read92 = mean(read92)
+  )
+
+v %>% 
+  plot(coefs = coefs, binned = TRUE) +
+  labs(
+    subtitle = "Data near cutoff binned",
+    y = "Adjusted post-test score"
+  )
+```
+
+This plot is different from the one in the book. The adjustment above only uses the data near the cutoff that is used in the model. The plot in the book adjusts using all data.
+
+#### Including interactions
+
+Center and scale `read88` and `math88`.
+
+```{r}
+chile_5 <- 
+  chile_5 %>% 
+  mutate(
+    read88_z = scale(read88) %>% as.double(),
+    math88_z = scale(math88) %>% as.double()
+  )
+```
+
+Fit linear regression with interaction.
+
+```{r}
+set.seed(SEED)
+
+fit_4 <- 
+  stan_glm(
+    read92 ~ eligible + rule2 + read88_z + math88_z + eligible:read88_z,
+    data = chile_5,
+    refresh = 0
+  )
+
+fit_4
+```
+
+The results are again different from those in the book, since we have centered and scaled only using the data near the cutoff that is used in the model.
+
+In this case, the available data are clearly too noisy to estimate this interaction.
+
+#### Regression fit to all the data
+
+Fit linear regression on all data, including pre-treatment variables.
+
+```{r}
+set.seed(SEED)
+
+fit_5 <- 
+  stan_glm(
+    read92 ~ eligible + rule2 + read88 + math88,
+    data = chile_all,
+    refresh = 0
+  )
+
+fit_5
+```
+

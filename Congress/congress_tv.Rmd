@@ -1,0 +1,253 @@
+---
+title: "Regression and Other Stories: Congress"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Predictive uncertainty for congressional elections. See Chapter 10
+in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Congressional election data
+file_congress <- here::here("Congress/data/congress.csv")
+  # Party colors
+party_colors <- 
+  c(
+    "Democrat"   = "#1a80c4",
+    "Republican" = "#cc3d3d",
+    "Open"       = "#7ead53"
+  )
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 10 Linear regression with multiple predicators
+
+## 10.6 Example: uncertainty in predicting congressional elections
+
+### Background
+
+Data
+
+```{r, message=FALSE}
+congress <- 
+  file_congress %>% 
+  read_csv() %>% 
+  mutate(
+    across(
+      starts_with("inc"),
+      ~ case_when(
+        . == -1 ~ "Republican",
+        . ==  0 ~ "Open",
+        . ==  1 ~ "Democrat",
+        TRUE ~ NA_character_
+      )
+    )
+  )
+
+congress
+```
+
+The `inc*` variables represent whether an incumbent is running for reelection and, if so, their party.
+
+The `*_adj` variables represent adjustments to account for uncontested elections. If `vx` is 0, then `vx_adj` is 0.25. If `vx` is greater than 0.9, then `vx_adj` is 0.75.
+
+Congressional elections in 1988: Raw data.
+
+```{r}
+congress %>% 
+  ggplot(aes(v88)) +
+  geom_histogram(binwidth = 0.05, boundary = 0) +
+  scale_x_continuous(labels = scales::label_percent(accuracy = 1)) +
+  labs(
+    title = "Congressional elections in 1988",
+    subtitle = "Raw data",
+    x = "Democratic share of two-party vote",
+    y = "Count"
+  )
+```
+
+Congressional elections in 1986 and 1988: Raw data.
+
+```{r, fig.asp=1}
+set.seed(616)
+
+congress %>% 
+  {
+    bind_rows(
+      filter(., inc88 != "Open"),
+      filter(., inc88 == "Open")
+    )
+  } %>% 
+  ggplot(aes(v86, v88, color = inc88)) +
+  geom_hline(yintercept = 0.5, color = "grey60") +
+  geom_vline(xintercept = 0.5, color = "grey60") +
+  geom_abline(slope = 1, intercept = 0) +
+  geom_count() +
+  coord_fixed() +
+  scale_x_continuous(labels = scales::label_percent(accuracy = 1)) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1)) +
+  scale_color_manual(values = party_colors) +
+  guides(size = "none") +
+  labs(
+    title = "Congressional elections in 1986 and 1988",
+    subtitle = "Raw data",
+    x = "Democratic vote share in 1986",
+    y = "Democratic vote share in 1988",
+    color = "Incumbent\nin 1988"
+  )
+```
+
+### Data issues
+
+Congressional elections in 1986 and 1988: Adjusted data.
+
+```{r, fig.asp=1}
+set.seed(616)
+
+congress %>% 
+  {
+    bind_rows(
+      filter(., inc88 != "Open"),
+      filter(., inc88 == "Open")
+    )
+  } %>% 
+  ggplot(aes(v86_adj, v88_adj, color = inc88)) +
+  geom_hline(yintercept = 0.5, color = "grey60") +
+  geom_vline(xintercept = 0.5, color = "grey60") +
+  geom_abline(slope = 1, intercept = 0) +
+  geom_count() +
+  coord_fixed(xlim = 0:1, ylim = 0:1) +
+  scale_x_continuous(labels = scales::label_percent(accuracy = 1)) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1)) +
+  scale_color_manual(values = party_colors) +
+  guides(size = "none") +
+  labs(
+    title = "Congressional elections in 1986 and 1988",
+    subtitle = "Adjusted data",
+    x = "Democratic vote share in 1986",
+    y = "Democratic vote share in 1988",
+    color = "Incumbent\nin 1988"
+  )
+```
+
+### Fitting the model
+
+Linear regression to predict `vote` (the Democratic share of the two-party vote in each district), given `past_vote` (the Democrats' share in the previous election) and `incumbent` (incumbency of seat).
+
+```{r}
+set.seed(905)
+
+data_88 <-  
+  congress %>% 
+  transmute(
+    vote = v88_adj,
+    vote_prev = v86_adj,
+    incumbent = inc88
+  )
+
+fit_88 <- stan_glm(vote ~ vote_prev + incumbent, data = data_88, refresh = 0)
+
+print(fit_88, digits = 2)
+```
+
+### Simulation for inferences and predictions of new data points
+
+Running `stan_glm()` produces a set of simulation draws expressing uncertainty in the parameters in the fitted model. We can access these simulations by extracting them from the fitted model object:
+
+```{r}
+sims_88 <- as_tibble(fit_88)
+
+nrow(sims_88)
+```
+
+We can use these simulations, along with data from 1988 and incumbency information in 1990, to predict the district-by-district election outcome in 1990. We start by creating a new tibble of predictors:
+
+```{r}
+data_90 <-  
+  congress %>% 
+  transmute(
+    vote_prev = v88_adj,
+    incumbent = inc90
+  )
+
+nrow(data_90)
+```
+
+We then simulate predictive simulations of new outcomes:
+
+```{r}
+set.seed(620)
+
+pred_90 <- 
+  posterior_predict(fit_88, newdata = data_90) %>% 
+  as_tibble()
+
+dim(pred_90)
+```
+
+The resulting tibble has `r nrow(pred_90)` rows, one for each simulation, and `r ncol(pred_90)` columns, one for each predicted congressional district.
+
+### Predictive simulation for a nonlinear function of new data
+
+For the congressional elections example, to perform inference on the predicted number of elections won by the Democrats in 1990, we sum over the rows of the tibble:
+
+```{r}
+pred_90_dems <- 
+  pred_90 %>% 
+  mutate(across(everything(), ~ . > 0.5)) %>% 
+  rowwise() %>% 
+  mutate(pred_dems = sum(c_across(everything()))) %>% 
+  pull(pred_dems)
+```
+
+Predicted number of Democratic wins in 1990.
+
+```{r}
+tibble(pred_90_dems = pred_90_dems) %>% 
+  ggplot(aes(pred_90_dems)) +
+  geom_bar() +
+  labs(
+    title = "Predicted number of Democratic wins in 1990",
+    x = "Predicted number of Democratic wins",
+    y = "Count"
+  )
+```
+
+```{r, comment=""}
+cat(
+  str_glue(
+    "The mean predicted number of Democratic wins in 1990 is ",
+    "{format(mean(pred_90_dems), digits = 1, nsmall = 1)} with a standard ",
+    "deviation of {format(sd(pred_90_dems), digits = 1, nsmall = 1)}."
+  )
+)
+```
+
+The actual number of Democratic wins in 1990 was 267.
+
+```{r}
+actual_90_dems <- 267
+
+z <- (actual_90_dems - mean(pred_90_dems)) / sd(pred_90_dems)
+z
+```
+
+This was `r format(z, digits = 2, nsmall = 2)` standard deviations from the predicted number of wins.
+

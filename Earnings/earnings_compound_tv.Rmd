@@ -1,0 +1,139 @@
+---
+title: "Regression and Other Stories: Earnings"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Predict respondents' yearly earnings using survey data from
+1990. See Chapter 15 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Seed
+SEED <- 7783
+  # Earnings data
+file_earnings <- here::here("Earnings/data/earnings.csv")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 15 Other generalized linear models
+
+## 15.8 Going beyond generalized linear models
+
+### Mixed discrete/continuous data
+
+Data
+
+```{r, message=FALSE}
+earnings <- 
+  file_earnings %>% 
+  read_csv() %>% 
+  mutate(
+    sex = 
+      case_when(
+        male == 0 ~ "Female",
+        male == 1 ~ "Male",
+        TRUE ~ NA_character_
+      ),
+    earn_pos = earn > 0
+  )
+
+earnings %>% 
+  select(height, sex, earn, earn_pos)
+```
+
+It can be appropriate to model a variable such as earnings in two steps: first a logistic regression for Pr(y > 0) fit to all the data, then a linear regression on log(y), fit just to the subset of the data for which y > 0.
+
+We first fit a logistic regression to predict whether earnings are positive.
+
+```{r}
+fit_pos <- 
+  stan_glm(
+    earn_pos ~ height + sex,
+    family = binomial(link = "logit"),
+    data = earnings,
+    refresh = 0,
+    seed = SEED
+  )
+
+print(fit_pos, digits = 2)
+```
+
+We then fit a log regression model to the respondents with positive earnings.
+
+```{r}
+fit_log_2 <- 
+  stan_glm(
+    log(earn) ~ height + sex,
+    data = earnings %>% filter(earn_pos),
+    refresh = 0,
+    seed = SEED
+  )
+
+print(fit_log_2, digits = 2)
+```
+
+Thus, for example, a 66-inch-tall woman has an estimated probability of
+
+```{r}
+v <- plogis(coef(fit_pos)[["(Intercept)"]] + coef(fit_pos)[["height"]] * 66)
+
+v
+```
+
+or an `r round(100 * v)`% chance, of having positive income.
+
+If her earnings are positive, their predicted value is
+
+```{r}
+exp(coef(fit_log_2)[["(Intercept)"]] + coef(fit_log_2)[["height"]] * 66)
+```
+
+Combining these gives a mixture of a spike at 0 and a lognormal distribution, which is most easily manipulated using simulations.
+
+```{r}
+set.seed(SEED)
+
+new <- tibble(height = 66, sex = "Female")
+
+pred_pos <- 
+  posterior_predict(fit_pos, newdata = new) %>% 
+  as.logical()
+pred_log_2 <- 
+  posterior_predict(fit_log_2, newdata = new) %>% 
+  as.numeric()
+pred <- if_else(pred_pos, exp(pred_log_2), 0)
+```
+
+Predicted earnings for 66-inch-tall women.
+
+```{r, fig.asp=0.75}
+tibble(pred) %>% 
+  ggplot(aes(pred)) + 
+  geom_histogram(binwidth = 2000, boundary = 0) +
+  coord_cartesian(xlim = c(NA, 1e5)) +
+  scale_x_continuous(labels = scales::label_comma()) +
+  labs(
+    title = "Predicted earnings for 66-inch-tall women",
+    subtitle = "Excluding outliers",
+    x = "Earnings",
+    y = "Count"
+  )
+```
+

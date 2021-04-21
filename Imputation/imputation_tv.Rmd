@@ -1,0 +1,422 @@
+---
+title: "Regression and Other Stories: Imputation"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Regression-based imputation for the Social Indicators Survey. See
+Chapter 17 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Social Indicator Survey data
+file_sis <- here::here("Imputation/data/SIS.csv")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 17 Poststratificiation and missing-data imputation
+
+## 17.5 Understanding multiple imputation
+
+Data
+
+```{r, message=FALSE}
+sis <- 
+  read_csv(file_sis) %>% 
+  select(!c(retirement, assistance, other))
+
+glimpse(sis)
+
+summary(sis)
+```
+
+### Simple random imputation
+
+The simplest approach to is to impute missing values of earnings based on the observed data for this variable. We can write this as an R function:
+
+```{r}
+random_imp <- function(x) {
+  n_non_na <- sum(!is.na(x))
+  if (n_non_na == 0) {
+    stop("No non-NA values")
+  } else if (n_non_na == 1) {
+    x[is.na(x)] <- x[!is.na(x)]
+  } else {
+    x[is.na(x)] <- sample(x[!is.na(x)], size = sum(is.na(x)), replace = TRUE)
+  }
+  x
+}
+```
+
+### Zero coding and topcoding
+
+Topcode function to set all values in vector `x` above the value of `top` to `top`.
+
+```{r}
+topcode <- function(x, top) {
+  if_else(x <= top, x, top)
+}
+```
+
+Create new variable `earnings_top` where all earnings about \$100,000 are set to \$100,000 (`earnings` are in thousands of dollars).
+
+```{r}
+sis <- 
+  sis %>% 
+  mutate(earnings_top = topcode(earnings, top = 100)) %>% 
+  relocate(earnings_top, .after = earnings)
+```
+
+Observed positive earnings.
+
+```{r}
+sis %>% 
+  filter(earnings_top > 0) %>% 
+  ggplot(aes(earnings_top)) +
+  geom_histogram(binwidth = 10, boundary = 0) +
+  labs(
+    title = "Observed positive earnings",
+    x = "Earnings (thousands of dollars)",
+    y = "Count"
+  )
+```
+
+### The problem with using regression predictions for deterministic imputation
+
+A simple and general imputation procedure that uses individual-level information uses a regression to the nonzero values of earnings. We first fit a regression to positive values of earnings:
+
+```{r}
+set.seed(971)
+
+fit_imp_1 <- 
+  stan_glm(
+    earnings ~ 
+      male + over65 + white + immig + educ_r + workmos + workhrs_top + any_ssi +
+      any_welfare + any_charity,
+    data = sis %>% filter(earnings > 0),
+    refresh = 0
+  )
+
+fit_imp_1
+```
+
+Point predictions of earnings for all rows of data.
+
+```{r}
+predictors <- vars(male:any_charity)
+
+sis <- 
+  sis %>% 
+  mutate(pred_1 = predict(fit_imp_1, newdata = sis %>% select(!!! predictors)))
+```
+
+To get predictions for all rows of earnings, we needed to select just the predictors. We needed to exclude `earnings` and `interest`, which have missing values (`NA` in R) and would cause the `predict()` function to skip these cases.
+
+Next, we write a function for replacing missing values in a vector with imputed values:
+
+```{r}
+impute <- function(x, replace) {
+  if_else(!is.na(x), x, replace)
+}
+```
+
+and use this to impute missing earnings:
+
+```{r}
+sis <- 
+  sis %>% 
+  mutate(earnings_imp_1 = impute(earnings, replace = pred_1))
+```
+
+### Transformations
+
+For the purpose of predicting incomes in the low and middle range, where we are most interested in this application, we work on the square root scale of income, topcoded to 100 (in thousands of dollars); we would expect a linear prediction model to fit better on that compressed scale. Here is the imputation procedure:
+
+```{r}
+set.seed(971)
+
+fit_imp_2 <- 
+  stan_glm(
+    sqrt(earnings_top) ~ 
+      male + over65 + white + immig + educ_r + workmos + workhrs_top + any_ssi +
+      any_welfare + any_charity,
+    data = sis %>% filter(earnings_top > 0),
+    refresh = 0
+  )
+
+fit_imp_2
+```
+
+Imputation using point predictions.
+
+```{r}
+sis <- 
+  sis %>% 
+  mutate(
+    pred_2 = 
+      predict(fit_imp_2, newdata = sis %>% select(!!! predictors))^2 %>% 
+      topcode(top = 100),
+    earnings_imp_2 = impute(earnings_top, replace = pred_2)
+  )
+```
+
+Deterministic imputation of earnings.
+
+```{r}
+sis %>% 
+  filter(is.na(earnings_top)) %>% 
+  ggplot(aes(earnings_imp_2)) +
+  geom_histogram(binwidth = 10, boundary = 0) +
+  coord_cartesian(xlim = c(0, 100)) +
+  labs(
+    title = "Deterministic imputation of earnings",
+    x = "Earnings (thousands of dollars)",
+    y = "Count"
+  )
+```
+
+From this graph, it appears that most of the nonrespondents have incomes in the middle range. Actually, the central tendency is an artifact of the deterministic imputation procedure.
+
+### Random regression imputation
+
+We can add uncertainty into the imputations by adding prediction error. For this example, we do this by creating a vector of random predicted values for the `r sum(is.na(sis$earnings))` missing cases -- here we simply grab the first row of the matrix of simulated predictions.
+
+```{r}
+set.seed(441)
+
+sis <- 
+  sis %>% 
+  mutate(
+    pred_4 =
+      posterior_predict(
+        fit_imp_2,
+        newdata = sis %>% select(!!! predictors),
+        draws = 1
+      )^2 %>% 
+      as.double() %>% 
+      topcode(top = 100),
+    earnings_imp_4 = impute(earnings_top, replace = pred_4)
+  )
+```
+
+Random imputation earnings.
+
+```{r}
+sis %>% 
+  filter(is.na(earnings_top)) %>% 
+  ggplot(aes(earnings_imp_4)) +
+  geom_histogram(binwidth = 10, boundary = 0) +
+  coord_cartesian(xlim = c(0, 100)) +
+  labs(
+    title = "Random imputation of earnings",
+    x = "Earnings (thousands of dollars)",
+    y = "Count"
+  )
+```
+
+Compared to deterministic imputation, these random imputations are more appropriately spread across the range of the population.
+
+We'll now look at the imputations as a function of the predicted earnings from the regression model.
+
+Deterministic imputation.
+
+```{r, fig.asp=0.75}
+sis %>% 
+  drop_na(earnings_top) %>% 
+  ggplot(aes(pred_2)) +
+  geom_point(aes(y = earnings_top, color = "Observed data")) +
+  geom_point(
+    aes(y = earnings_imp_2, color = "Imputation"),
+    data = sis %>% filter(is.na(earnings_top))
+  ) +
+  scale_color_manual(
+    breaks = c("Imputation", "Observed data"),
+    values = c("black", "grey60")
+  ) +
+  coord_fixed(xlim = c(0, 100)) +
+  labs(
+    title = "Deterministic imputation",
+    x = "Regression prediction",
+    y = "Earnings (thousands of dollars)",
+    color = NULL
+  )
+```
+
+The deterministic imputations are exactly at the regression predictions and ignore predictive uncertainty.
+
+Random imputation.
+
+```{r, fig.asp=0.75}
+sis %>% 
+  drop_na(earnings_top) %>% 
+  ggplot(aes(pred_2)) +
+  geom_point(aes(y = earnings_top, color = "Observed data")) +
+  geom_point(
+    aes(y = earnings_imp_4, color = "Imputation"),
+    data = sis %>% filter(is.na(earnings_top))
+  ) +
+  scale_color_manual(
+    breaks = c("Imputation", "Observed data"),
+    values = c("black", "grey60")
+  ) +
+  coord_fixed(xlim = c(0, 100)) +
+  labs(
+    title = "Random imputation",
+    x = "Regression prediction",
+    y = "Earnings (thousands of dollars)",
+    color = NULL
+  )
+```
+
+In contrast, the random imputations are more variable and better capture the range of earnings in the data.
+
+### Two-stage modeling to impute a variable that can be positive or zero
+
+We will now impute missing responses to the earnings question in two steps: first, imputing an indicator for whether earnings are positive, and, second, imputing the continuous positive values of earnings.
+
+Fit logistic regression for whether earnings are positive.
+
+```{r}
+set.seed(971)
+
+fit_pos <- 
+  stan_glm(
+    (earnings > 0) ~ 
+      male + over65 + white + immig + educ_r + any_ssi + any_welfare +
+      any_charity,
+    family = binomial(link = "logit"),
+    data = sis,
+    refresh = 0
+  )
+
+fit_pos
+```
+
+Then we impute an indicator for whether the missing earnings are positive:
+
+```{r}
+set.seed(906)
+
+sis <- 
+  sis %>% 
+  mutate(
+    pred_pos = 
+      posterior_predict(
+        fit_pos,
+        newdata = sis %>% select(!!! predictors),
+        draws = 1
+      ) %>% 
+      as.double()
+  )
+
+sis$pred_pos[1:20]
+```
+
+`fit_imp_2` above was fit to impute continuous positive values of earnings, and the `sis` variable `pred_4` are random imputations from it. We now combine `pred_pos` and `pred_4` to impute earnings:
+
+```{r}
+sis <- 
+  sis %>% 
+  mutate(earnings_imp_5 = impute(earnings_top, replace = pred_pos * pred_4))
+```
+
+### Iterative regression imputation
+
+Let's look at the `NA` pattern for `earnings` and `interest`.
+
+```{r}
+sis %>% 
+  count(is.na(earnings), is.na(interest))
+```
+
+Of the 436 rows where at least one of these variables is `NA`, only 82 rows have both variables `NA`. Since they have non-overlapping patterns of missingness, each can be used to help impute the other.
+
+We create random imputations to get the process started:
+
+```{r}
+set.seed(453)
+
+sis <- 
+  sis %>% 
+  mutate(
+    earnings_imp = random_imp(earnings),
+    interest_imp = random_imp(interest)
+  )
+```
+
+The function below first imputes `earnings_imp` using a model based upon `interest_imp` and then imputes `interest_imp` using a model based upon `earnings_imp`.
+
+```{r}
+predictors <- vars(earnings_imp, interest_imp, male:any_charity)
+
+earnings_interest_imp <- function() {
+  fit <- 
+    stan_glm(
+      earnings ~ 
+        interest_imp + male + over65 + white + immig + educ_r + workmos +
+        workhrs_top + any_ssi + any_welfare + any_charity,
+      data = sis,
+      refresh = 0
+    )
+  sis <- 
+    sis %>% 
+    mutate(
+      earnings_imp =
+        posterior_predict(
+          fit,
+          newdata = sis %>% select(!!! predictors),
+          draw = 1
+        ) %>% 
+        as.double() %>% 
+        impute(earnings, replace = .)
+    )
+  fit <- 
+    stan_glm(
+      interest ~ 
+        earnings_imp + male + over65 + white + immig + educ_r + workmos +
+        workhrs_top + any_ssi + any_welfare + any_charity,
+      data = sis,
+      refresh = 0
+    )
+  sis <- 
+    sis %>% 
+    mutate(
+      interest_imp =
+        posterior_predict(
+          fit,
+          newdata = sis %>% select(!!! predictors),
+          draw = 1
+        ) %>% 
+        as.double() %>% 
+        impute(interest, replace = .)
+    )
+}
+```
+
+```{r}
+n <- 10
+```
+
+We now iterate the function `earnings_interest_imp()` `r n` times.
+
+```{r}
+seq_len(n) %>% 
+  walk(~ earnings_interest_imp())
+```
+

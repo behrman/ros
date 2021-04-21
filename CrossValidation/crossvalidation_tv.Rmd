@@ -1,0 +1,409 @@
+---
+title: "Regression and Other Stories: Cross-validation"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Introduction to cross-validation for linear regression. See Chapter
+11 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # Seed
+SEED <- 2141
+  # Kid test score data
+file_kids <- here::here("KidIQ/data/kidiq.csv")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 11 Assumptions, diagnostics, and model evaluation
+
+## 11.8 Cross validation
+
+### Leave-one-out cross validation
+
+Data
+
+```{r}
+set.seed(SEED)
+
+n <- 20
+a <- 0.2
+b <- 0.3
+sigma <- 1
+
+data <- 
+  tibble(
+    x = seq_len(n),
+    y = a + b * x + rnorm(n, mean = 0, sd = sigma)
+  )
+```
+
+```{r}
+data %>% 
+  ggplot(aes(x, y)) + 
+  geom_point()
+```
+
+Fit linear model on all data.
+
+```{r}
+fit_all <- stan_glm(y ~ x, data = data, refresh = 0, seed = SEED)
+
+fit_all
+```
+
+Fit linear model to data without x = 18.
+
+```{r}
+fit_m18 <- 
+  stan_glm(y ~ x, data = data %>% filter(x != 18), refresh = 0, seed = SEED)
+
+fit_m18
+```
+
+"Model fits to all data and to data without x = 18.
+
+```{r, fig.asp=0.75}
+lines <- 
+  tribble(
+    ~intercept, ~slope, ~label,
+    coef(fit_all)[["(Intercept)"]], coef(fit_all)[["x"]], "Fit to all data",
+    coef(fit_m18)[["(Intercept)"]], coef(fit_m18)[["x"]],
+      "Fit to data without x = 18"
+  )
+
+data %>% 
+  ggplot(aes(x, y)) +
+  geom_abline(
+    aes(slope = slope, intercept = intercept, color = label),
+    data = lines
+  ) + 
+  geom_point(
+    data = data %>% filter(x == 18),
+    color = "grey60",
+    shape = "circle open",
+    size = 5
+  ) +
+  geom_point() +
+  theme(legend.position = "bottom") +
+  labs(
+    title = "Model fits to all data and to data without x = 18",
+    color = NULL
+  )
+```
+
+Posterior predictive distribution at x = 18 for model fit to all data.
+
+```{r}
+set.seed(SEED)
+
+new <- tibble(x = 18)
+
+post_pred_all <- posterior_predict(fit_all, newdata = new)
+```
+
+Posterior predictive distribution at x = 18 for model fit to data without x = 18.
+
+```{r}
+set.seed(SEED)
+
+post_pred_m18 <- posterior_predict(fit_m18, newdata = new)
+```
+
+Posterior predictive distributions at x = 18.
+
+```{r, fig.asp=0.75}
+preds <- 
+  tribble(
+    ~y, ~label,
+    predict(fit_all, newdata = new), "Fit to all data",
+    predict(fit_m18, newdata = new), "Fit to data without x = 18"
+  )
+
+v <- 
+  bind_rows(
+    tibble(
+      y = as.double(post_pred_all),
+      label = "Fit to all data"
+    ),
+    tibble(
+      y = as.double(post_pred_m18),
+      label = "Fit to data without x = 18"
+    )
+  )
+
+v %>% 
+  ggplot(aes(y = y, color = label)) +
+  stat_density(geom = "line", position = "identity") +
+  geom_hline(aes(yintercept = y, color = label), data = preds) +
+  scale_x_continuous(breaks = 0) +
+  labs(
+    title = "Posterior predictive distributions at x = 18",
+    subtitle = "Horizontal lines are the means of the distributions",
+    x = NULL,
+    color = NULL
+  )
+```
+
+Compute posterior and LOO residuals.
+
+```{r, message=FALSE, warning=FALSE}
+resid_all <- residuals(fit_all)
+resid_loo <- data$y - loo_predict(fit_all)$value
+```
+
+Residuals for model fit to all data and LOO models.
+
+```{r, fig.asp=0.75}
+v <- 
+  bind_rows(
+    tibble(x = data$x, y = resid_all, color = "all"),
+    tibble(x = data$x, y = resid_loo, color = "loo")
+  )
+
+v_wide <- 
+  v %>% 
+  pivot_wider(names_from = color, values_from = y)
+
+v %>% 
+  ggplot(aes(x, y)) +
+  geom_hline(yintercept = 0, color = "white", size = 2) +
+  geom_segment(aes(xend = x, y = all, yend = loo), data = v_wide) +
+  geom_point(aes(color = color)) +
+  scale_color_discrete(
+    breaks = c("all", "loo"),
+    labels = c("All-data residual", "LOO residual")
+  ) +
+  theme(legend.position = "bottom") +
+  labs(
+    title = "Residuals for model fit to all data and LOO models",
+    subtitle = 
+      "LOO residual at point is from LOO model with that point omitted",
+    y = "Residual",
+    color = NULL
+  )
+```
+
+### Summarizing prediction error using the log score and deviance
+
+Posterior pointwise log-likelihood matrix.
+
+```{r}
+log_lik_post <- log_lik(fit_all)
+```
+
+Posterior log predictive densities.
+
+```{r}
+lpd_post <- matrixStats::colLogSumExps(log_lik_post) - log(nrow(log_lik_post))
+```
+
+LOO log predictive densities.
+
+```{r}
+lpd_loo <- loo(fit_all)$pointwise[, "elpd_loo"]
+```
+
+Posterior and LOO log predictive densities.
+
+```{r, fig.asp=0.75}
+v <- 
+  bind_rows(
+    tibble(x = data$x, y = lpd_post, color = "post"),
+    tibble(x = data$x, y = lpd_loo, color = "loo")
+  )
+
+v_wide <- 
+  v %>% 
+  pivot_wider(names_from = color, values_from = y)
+
+v %>% 
+  ggplot(aes(x, y)) +
+  geom_segment(aes(xend = x, y = post, yend = loo), data = v_wide) +
+  geom_point(aes(color = color)) +
+  scale_color_discrete(
+    breaks = c("post", "loo"),
+    labels = c("Posterior", "LOO"),
+    direction = -1
+  ) +
+  theme(legend.position = "bottom") +
+  labs(
+    title = "Posterior and LOO log predictive densities",
+    y = "Log predictive density",
+    color = NULL
+  )
+```
+
+The sum of log predictive densities is measure of a model's predictive performance called the _expected log predictive density_ (ELPD) or the log score. The `loo()` function calculates the LOO log score.
+
+```{r}
+sum(lpd_loo)
+
+loo(fit_all)$estimate %>% 
+  round(digits = 1)
+```
+
+### Demonstration of adding pure noise predictors to a model
+
+Child test scores.
+
+```{r, message=FALSE}
+kids <- read_csv(file_kids)
+
+kids
+```
+
+#### Effect of adding noise predictors to $R^2$ and the log score
+
+Linear regression of child test score vs. mother high school completion and IQ. (We use the seed 765 used previously with this model.)
+
+```{r}
+set.seed(765)
+
+fit_3 <- stan_glm(kid_score ~ mom_hs + mom_iq, data = kids, refresh = 0)
+
+fit_3
+```
+
+Add five pure noise predictors to the data.
+
+```{r}
+set.seed(765)
+
+kids <- 
+  kids %>% 
+  mutate(noise = matrix(rnorm(n() * 5), nrow = n(), ncol = 5))
+```
+
+Linear regression with additional noise predictors.
+
+```{r}
+set.seed(765)
+
+fit_3n <- 
+  stan_glm(kid_score ~ mom_hs + mom_iq + noise, data = kids, refresh = 0)
+
+fit_3n
+```
+
+$R^2$ and LOO $R^2$ for both models.
+
+```{r, message=FALSE}
+set.seed(765)
+
+r2 <- function(y, pred) {
+  1 - var(y - pred) / var(y)
+}
+
+fit_3_r2 <- r2(kids$kid_score, predict(fit_3))
+fit_3n_r2 <- r2(kids$kid_score, predict(fit_3n))
+fit_3_r2_loo <- r2(kids$kid_score, loo_predict(fit_3)$value)
+fit_3n_r2_loo <- r2(kids$kid_score, loo_predict(fit_3n)$value)
+```
+
+$R^2$ increases with the addition of noise.
+
+```{r}
+fit_3n_r2 - fit_3_r2
+```
+
+LOO $R^2$ decreases with the addition of noise.
+
+```{r}
+fit_3n_r2_loo - fit_3_r2_loo
+```
+
+Posterior and LOO log scores both models.
+
+```{r}
+fit_3_elpd <- loo::elpd(log_lik(fit_3))$estimates[["elpd", "Estimate"]]
+fit_3n_elpd <- loo::elpd(log_lik(fit_3n))$estimates[["elpd", "Estimate"]]
+fit_3_elpd_loo <- loo(fit_3)$estimates[["elpd_loo", "Estimate"]]
+fit_3n_elpd_loo <- loo(fit_3n)$estimates[["elpd_loo", "Estimate"]]
+```
+
+Posterior log score increases with the addition of noise.
+
+```{r}
+fit_3n_elpd - fit_3_elpd
+```
+
+LOO log score decreases with the addition of noise.
+
+```{r}
+fit_3n_elpd_loo - fit_3_elpd_loo
+```
+
+As we saw above, the `loo()` function computes the LOO log score `elpd_loo`. It also computes the effective number of parameters `p_loo` and the LOO information criterion `looic` (equal to `-2 * elpd_loo`). And it provides diagnostic information on its calculations.
+
+```{r}
+loo_3 <- loo(fit_3)
+
+loo_3
+```
+
+#### Using `loo_compare()` to compare models
+
+Linear regression of child test score vs. mother high school completion.
+
+```{r}
+set.seed(765)
+
+fit_1 <- stan_glm(kid_score ~ mom_hs, data = kids, refresh = 0)
+```
+
+LOO log score for the simpler model.
+
+```{r}
+loo_1 <- loo(fit_1)
+
+loo_1
+```
+
+The LOO log score decreased from from `r format(fit_3_elpd_loo, digits = 1, nsmall = 1)` for the model with two predictors to `r format(loo_1$estimates[["elpd_loo", "Estimate"]], digits = 1, nsmall = 1)` for the model with just one. A higher LOO log score indicates better predictive performance. The model with one predictor has a LOO log score that is `r format(loo_1$estimates[["elpd_loo", "Estimate"]] - fit_3_elpd_loo, digits = 1, nsmall = 1)` lower.
+
+The two models can be compared directly with `loo_compare()`.
+
+```{r}
+loo_compare(loo_3, loo_1)
+```
+
+Linear regression of child test score vs. mother high school completion, IQ, and the interaction of these two predictors.
+
+```{r}
+set.seed(765)
+
+fit_4 <- 
+  stan_glm(kid_score ~ mom_hs + mom_iq + mom_hs:mom_iq,
+    data = kids,
+    refresh = 0
+  )
+```
+
+Compare this model to the model without the interaction.
+
+
+```{r}
+loo_4 <- loo(fit_4)
+loo_compare(loo_3, loo_4)
+```
+
+Differences in `elpd_loo` of less than 4 are hard to distinguish from noise, so the addition of the interaction does not appear to provide much predictive advantage.
+

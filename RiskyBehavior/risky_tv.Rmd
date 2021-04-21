@@ -1,0 +1,54 @@
+---
+title: "Regression and Other Stories: RiskyBehavior"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Data from a randomized trial targeting couples at high risk of HIV
+infection. The intervention provided counseling sessions regarding
+practices that could reduce their likelihood of contracting
+HIV. Couples were randomized either to a control group, a group in
+which just the woman participated, or a group in which both members
+of the couple participated. One of the outcomes examined after
+three months was "number of unprotected sex acts." See Chapter 15
+in Regression and Other Stories.
+
+Reference: El-Bassel, N., Witte, S. S., Gilbert, L., Wu, E.,
+Chang, M., Hill, J., and Steinglass, P. (2003). The efficacy of a
+relationship-based HIV/STD prevention program for heterosexual
+couples. *American journal of public health*, **93**, 963--969.
+
+DOI: [10.2105/AJPH.93.6.963](https://ajph.aphapublications.org/doi/10.2105/AJPH.93.6.963)
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+
+# Parameters
+  # Data from a randomized trial targeting couples at high risk of HIV infection
+file_risky <- here::here("RiskyBehavior/data/risky.csv")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 15 Other generalized linear models
+
+## 15.10 Exercises
+
+```{r, message=FALSE}
+risky <- read_csv(file_risky)
+
+risky
+```
+

@@ -1,0 +1,169 @@
+---
+title: "Regression and Other Stories: National election study"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Fitting the same regression to many datasets. See Chapter 10 in
+Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # National Election Study data
+file_nes <- here::here("NES/data/nes.txt")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 10 Linear regression with multiple predictors
+
+## 10.9 Fitting the same model to many datasets
+
+### Predicting party identification
+
+Data
+
+```{r}
+nes <-
+  file_nes %>% 
+  read.table() %>% 
+  as_tibble()
+
+glimpse(nes)
+```
+
+Note that the data has weight variables `weight*`. It may be appropriate to perform a weighted linear regression. But since we have no documentation for these variables, we will ignore them.
+
+Our models will use the following variables for the years 1976 - 2000.
+
+```{r}
+nes <- 
+  nes %>% 
+  filter(year >= 1976, year <= 2000) %>% 
+  select(
+    year,
+    partyid7,
+    real_ideo,
+    race_adj,
+    age_discrete,
+    educ1,
+    female,
+    income
+  )
+
+summary(nes)
+```
+
+The variable `real_ideo` has `r format(100 * mean(is.na(nes$real_ideo)), digits = 1, nsmall = 1)`% `NA`s. This could be a problem, but we will ignore it.
+
+Finally, we'll convert `age_discrete` into a factor.
+
+```{r}
+nes <- 
+  nes %>% 
+  mutate(
+    age =
+      case_when(
+        age_discrete == 1 ~ "18 - 29",
+        age_discrete == 2 ~ "30 - 44",
+        age_discrete == 3 ~ "45 - 64",
+        age_discrete == 4 ~ "65+",
+        TRUE ~ NA_character_
+      ) %>% 
+      factor()
+  ) %>% 
+  select(!age_discrete)
+```
+
+Fit the a linear regression for each election year. Return the coefficients and their standard errors for each regression.
+
+```{r}
+set.seed(178)
+
+coefs <- 
+  nes %>% 
+  nest(data = !year) %>% 
+  mutate(
+    fit =
+      map(
+        data,
+        ~ stan_glm(
+          partyid7 ~ real_ideo + race_adj + age + educ1 + female + income,
+          data = .,
+          refresh = 0
+        )
+      ),
+    coefs =
+      map(
+        fit,
+        ~ left_join(
+          enframe(coef(.), name = "var", value = "coef"),
+          enframe(se(.), name = "var", value = "se"),
+          by = "var"
+        )
+      )
+  ) %>% 
+  select(!c(data, fit)) %>% 
+  unnest(cols = coefs)
+
+coefs
+```
+
+Linear regression coefficients by election year: With 50% uncertainty intervals.
+
+```{r, fig.asp=0.75}
+var_labels <- 
+  c(
+    "(Intercept)" = "Intercept",
+    "real_ideo" = "Ideology",
+    "race_adj" = "Black",
+    "age30 - 44" = "Age 30 - 44",
+    "age45 - 64" = "Age 45 - 64",
+    "age65+" = "Age 65+",
+    "educ1" = "Education",
+    "female" = "Female",
+    "income" = "Income"
+  )
+
+coefs %>% 
+  mutate(
+    var = fct_inorder(var),
+    q_25 = qnorm(0.25, mean = coef, sd = se),
+    q_75 = qnorm(0.75, mean = coef, sd = se)
+  ) %>% 
+  ggplot(aes(year, coef)) +
+  geom_hline(yintercept = 0, color = "grey60") +
+  geom_line() +
+  geom_linerange(aes(ymin = q_25, ymax = q_75)) +
+  geom_point() +
+  facet_wrap(
+    vars(var),
+    ncol = 3,
+    scales = "free_y",
+    labeller = labeller(var = var_labels)
+  ) +
+  scale_x_continuous(breaks = seq(1976, 2000, 4)) +
+  theme(axis.text = element_text(size = rel(0.6))) +
+  labs(
+    title = "Linear regression coefficients by election year",
+    subtitle = "With 50% uncertainty intervals",
+    x = "Election year",
+    y = "Coefficient"
+  )
+```
+

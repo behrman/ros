@@ -1,0 +1,135 @@
+---
+title: "Regression and Other Stories: Elections Economy -- model checking"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Elections Economy -- model checking. Checking the model-fitting
+procedure using fake-data simulation. See Chapter 7 in Regression
+and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(rstanarm)
+
+# Parameters
+  # U.S. Presidential election results and GDP growth
+file_hibbs <- here::here("ElectionsEconomy/data/hibbs.dat")
+  # Common code
+file_common <- here::here("_common.R")
+  
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 7 Linear regression with a single predictor
+
+## 7.2 Checking the model-fitting procedure using fake-data simulation
+
+Actual data.
+
+```{r}
+hibbs <- 
+  file_hibbs %>% 
+  read.table(header = TRUE) %>% 
+  as_tibble()
+
+hibbs
+```
+
+Parameters for simulation data.
+
+```{r}
+a <- 46.3
+b <- 3.1
+sigma <- 3.9
+```
+
+Parameters and posterior uncertainty interval probabilities to test.
+
+```{r}
+params_probs <- 
+  tribble(
+    ~x,    ~param,
+    a,     "(Intercept)",
+    b,     "x",
+    sigma, "sigma"
+  ) %>% 
+  mutate(prob = list(c(0.5, 0.90, 0.95))) %>% 
+  unnest(cols = prob)
+
+params_probs
+```
+
+Check whether parameter is within posterior uncertainty interval.
+
+```{r}
+in_posterior_interval <- function(fit, x, param, prob) {
+  posterior_interval <- posterior_interval(fit, prob = prob, pars = param)
+  tibble(
+    param = param,
+    prob = prob,
+    in_posterior_interval = 
+      (x >= posterior_interval[1]) && (x <= posterior_interval[2])
+  )
+}
+```
+
+Generate simulation data, fit linear regression model to data, and determine whether parameters are in their posterior uncertainty intervals.
+
+```{r}
+sim <- function() {
+  data <- 
+    tibble(
+      x = hibbs$growth,
+      y = a + b * x + rnorm(length(x), mean = 0, sd = sigma)
+    )
+  
+  fit <- stan_glm(y ~ x, data = data, refresh = 0)
+  
+  params_probs %>% 
+    pmap_dfr(in_posterior_interval, fit = fit)
+}
+```
+
+```{r}
+n_sims <- 1000
+```
+
+Perform simulation `r format(n_sims, big.mark = ",")` times.
+
+```{r}
+set.seed(378)
+
+sims <- map_dfr(seq_len(n_sims), ~ sim())
+```
+
+We can now check the proportion of simulations where the posterior uncertainty intervals covered the parameters used to generate the random data for the fits.
+
+```{r}
+sims %>% 
+  mutate(
+    param = 
+      case_when(
+        param == "(Intercept)" ~ "a",
+        param == "x" ~ "b",
+        TRUE ~ param
+      )
+  ) %>% 
+  group_by(param, prob) %>% 
+  summarize(posterior_interval_prop = mean(in_posterior_interval)) %>% 
+  ungroup() %>% 
+  knitr::kable()
+```
+
+In all cases, the proportion of simulations where the posterior uncertainty interval covered the parameters was close to the probabilities defining the intervals.
+

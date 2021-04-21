@@ -1,0 +1,437 @@
+---
+title: "Regression and Other Stories: Mesquite"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Predicting the yields of mesquite bushes. See Chapter 12 in
+Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(bayesplot)
+library(rstanarm)
+
+# Parameters
+  # Seed
+SEED <- 4587
+  # Mesquite biomass production data
+file_mesquite <- here::here("Mesquite/data/mesquite.dat")
+  # Common code
+file_common <- here::here("_common.R")
+
+# Functions
+  # LOO R^2
+loo_r2 <- function(fit, digits = 2) {
+  round(median(loo_R2(fit)), digits = digits)
+}
+  # Bayesian R^2
+bayes_r2 <- function(fit, digits = 2) {
+  round(median(bayes_R2(fit)), digits = digits)
+}
+  # Plot kernel density of data and sample replicates
+plot_density_overlay <- function(y, y_rep) {
+  ggplot(mapping = aes(y)) +
+    stat_density(
+      aes(group = rep, color = "y_rep"),
+      data = 
+        seq_len(nrow(y_rep)) %>% map_dfr(~ tibble(rep = ., y = y_rep[., ])),
+      geom = "line",
+      position = "identity",
+      alpha = 0.5,
+      size = 0.25
+    ) +
+    stat_density(aes(color = "y"), data = tibble(y), geom = "line", size = 1) +
+    scale_y_continuous(breaks = 0) +
+    scale_color_discrete(
+      breaks = c("y", "y_rep"),
+      labels = c("y", expression(y[rep]))
+    ) +
+    theme(legend.text.align = 0) +
+    labs(
+      x = NULL,
+      y = NULL,
+      color = NULL
+    )
+}
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 12 Transformation and regression
+
+## 12.6 Building and comparing regression models for prediction
+
+### Example predicting the yields of mesquite bushes
+
+Data
+
+```{r, message=FALSE}
+mesquite <- read_table2(file_mesquite)
+
+mesquite
+```
+
+The outcome variable is `weight`, the total weight in grams of photosynthetic material derived from harvesting the bush. The other variables are:
+
+* `group`: Two separate sets of measurements were taken, one on a group of 26 bushes and the other on a different group 20 bushes measured at a different time of year
+* `diam1`: Diameter of the canopy (the leafy area of the bush) in meters, measured along the longer axis of the bush
+* `diam2`: Canopy diameter measured along the shorter diameter
+* `total_height`: Total height of bush
+* `canopy_height`: Height of canopy
+* `density`: Plant unit density (number of primary stems per plant unit)
+
+Model weight on all the predictors.
+
+```{r}
+fit_1 <- 
+  stan_glm(
+    weight ~ diam1 + diam2 + canopy_height + total_height + density + group,
+    data = mesquite,
+    seed = SEED,
+    refresh = 0
+  )
+
+fit_1
+```
+
+LOO log score
+
+```{r}
+loo_1 <- loo(fit_1)
+```
+
+We get warnings about high Pareto k values, so we follow the advice and call `loo()` again with the suggested argument.
+
+```{r, message=FALSE}
+loo_1 <- loo(fit_1, k_threshold = 0.7)
+
+loo_1
+```
+
+LOO $R^2$
+
+```{r, warning=FALSE}
+loo_r2(fit_1)
+```
+
+Bayesian $R^2$
+
+```{r}
+bayes_r2(fit_1)
+```
+
+Model log(weight) on log transformed predictors.
+
+```{r}
+fit_2 <- 
+  stan_glm(
+    log(weight) ~ 
+      log(diam1) + log(diam2) + log(canopy_height) + log(total_height) +
+      log(density) + group,
+    data = mesquite,
+    seed = SEED,
+    refresh = 0
+  )
+
+fit_2
+```
+
+LOO log score
+
+```{r}
+loo_2 <- loo(fit_2)
+```
+
+We get a warning about a high Pareto k value, so we again follow the advice and call `loo()` again with the suggested argument.
+
+```{r, message=FALSE}
+loo_2 <- loo(fit_2, k_threshold = 0.7)
+
+loo_2
+```
+
+LOO $R^2$
+
+```{r, warning=FALSE}
+loo_r2(fit_2)
+```
+
+Bayesian $R^2$
+
+```{r}
+bayes_r2(fit_2)
+```
+
+### Using the Jacobian to adjust the predictive comparison after a tranformation
+
+Since model 1 uses `weight` as its outcome variable and model 2 uses `log(weight)`, a Jacobian correction is needed in order to compare the models.
+
+```{r}
+loo_2_with_jacobian <- loo_2
+loo_2_with_jacobian$pointwise[, "elpd_loo"] <- 
+  loo_2_with_jacobian$pointwise[, "elpd_loo"] - log(mesquite$weight)
+
+loo_2_with_jacobian_elpd <- sum(loo_2_with_jacobian$pointwise[, "elpd_loo"])
+loo_2_with_jacobian_elpd
+```
+
+With the Jacobian correction, we can now compare the log scores of models 1 and 2. There will be a warning about the outcome variables being different, but this is OK because we have made the correction.
+
+```{r}
+loo_compare(loo_1, loo_2_with_jacobian)
+```
+
+Model 2 has the better log score.
+
+#### Posterior predictive checking for non-log model
+
+Replicates from non-log model.
+
+```{r}
+set.seed(700)
+
+y_rep_1 <- posterior_predict(fit_1)
+
+n_sims <- nrow(y_rep_1)
+n_rep <- 100
+sims_sample <- sample(n_sims, n_rep)
+```
+
+Kernel density of data and `r n_rep` sample replicates from non-log model.
+
+```{r}
+plot_density_overlay(y = mesquite$weight, y_rep = y_rep_1[sims_sample, ]) +
+  labs(
+    title = 
+      str_glue(
+        "Kernel density of data and {n_rep} sample replicates from non-log model"
+      ),
+    x = "Weight"
+  )
+```
+
+Kernel density of data and `r n_rep` sample replicates from non-log model using bayesplot.
+
+```{r}
+ppc_dens_overlay(y = mesquite$weight, yrep = y_rep_1[sims_sample, ]) +
+  theme(
+    axis.line.y = element_blank(),
+    text = element_text(family = "sans"),
+  ) +
+  labs(title = "Model for weight")
+```
+
+#### Posterior predictive checking for model in log scale
+
+Replicates from log model.
+
+```{r}
+set.seed(700)
+
+y_rep_2 <- posterior_predict(fit_2)
+```
+
+Kernel density of data and `r n_rep` sample replicates from log model.
+
+```{r}
+plot_density_overlay(y = log(mesquite$weight), y_rep = y_rep_2[sims_sample, ]) +
+  labs(
+    title = 
+      str_glue(
+        "Kernel density of data and {n_rep} sample replicates from log model"
+      ),
+    x = "Log weight"
+  )
+```
+
+Kernel density of data and `r n_rep` sample replicates from log model using bayesplot.
+
+```{r}
+ppc_dens_overlay(y = log(mesquite$weight), yrep = y_rep_2[sims_sample, ]) +
+  theme(
+    axis.line.y = element_blank(),
+    text = element_text(family = "sans"),
+  ) +
+  labs(title = "Model for log(weight)")
+```
+
+Marginal posteriors for log model using bayesplot.
+
+```{r}
+mcmc_areas(as.matrix(fit_2), regex_pars = "^(log|group)") +
+  theme(text = element_text(family = "sans"))
+```
+
+Posterior coefficients of `log(canopy_height)` and `log(total_height)`.
+
+```{r}
+sims_2 <- as_tibble(fit_2)
+
+sims_2 %>% 
+  ggplot(aes(`log(canopy_height)`, `log(total_height)`)) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  geom_point(alpha = 0.5, size = 0.5) +
+  labs(
+    title =
+      "Posterior coefficients of log(canopy_height) and log(total_height)",
+    x = "Coefficient of log(canopy_height)",
+    y = "Coefficient of log(total_height)"
+  )
+```
+
+We can see that although the univariate marginal densities overlap with zero, the joint distribution is clearly separated from zero.
+
+### Constructing a simpler model
+
+Additional transformed variables.
+
+```{r}
+mesquite <- 
+  mesquite %>% 
+  mutate(
+    canopy_volume = diam1 * diam2 * canopy_height,
+    canopy_area = diam1 * diam2,
+    canopy_shape = diam1 / diam2
+  )
+```
+
+#### A model with canopy volume variable
+
+```{r}
+fit_3 <- 
+  stan_glm(
+    log(weight) ~ log(canopy_volume),
+    data = mesquite,
+    seed = SEED,
+    refresh = 0
+  )
+
+fit_3
+```
+
+LOO log score
+
+```{r}
+loo_3 <- loo(fit_3)
+
+loo_3
+```
+
+LOO $R^2$
+
+```{r}
+loo_r2(fit_3)
+```
+
+Bayesian $R^2$
+
+```{r}
+bayes_r2(fit_3)
+```
+
+Compare log scores. Models 2 and 3 both use `log(weight)` as the outcome variable, so they can be compared directly.
+
+```{r}
+loo_compare(loo_2, loo_3)
+```
+
+Model 2 has the better log score.
+
+#### Add canopy area and shape to model
+
+```{r}
+fit_4 <- 
+  stan_glm(
+    log(weight) ~ 
+      log(canopy_volume) + log(canopy_area) + log(canopy_shape) + 
+      log(total_height) + log(density) + group,
+    data = mesquite,
+    seed = SEED,
+    refresh = 0
+  )
+
+fit_4
+```
+
+LOO log score
+
+```{r}
+loo_4 <- loo(fit_4)
+
+loo_4
+```
+
+LOO $R^2$
+
+```{r, warning=FALSE}
+loo_r2(fit_4)
+```
+
+Bayesian $R^2$
+
+```{r}
+bayes_r2(fit_4)
+```
+
+Compare log scores.
+
+```{r}
+loo_compare(loo_2, loo_4)
+```
+
+The predictor variables in model 4 and just a linear transformation of those in model 2, so the log scores for the two models are virtually the same.
+
+#### A model with just canopy volume and canopy shape
+
+```{r}
+fit_5 <- 
+  stan_glm(
+    log(weight) ~ log(canopy_volume) + log(canopy_shape) + group,
+    data = mesquite,
+    seed = SEED,
+    refresh = 0
+  )
+
+fit_5
+```
+
+LOO log score
+
+```{r}
+loo_5 <- loo(fit_5)
+
+loo_5
+```
+
+LOO $R^2$
+
+```{r, warning=FALSE}
+loo_r2(fit_5)
+```
+
+Bayesian $R^2$
+
+```{r}
+bayes_r2(fit_5)
+```
+
+Compare log scores.
+
+```{r}
+loo_compare(loo_4, loo_5)
+```
+
+The simpler model 5, with a subset of the predictor variables of model 4, has the better log score.
+

@@ -1,0 +1,213 @@
+---
+title: "Regression and Other Stories: Robit"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Comparison of robit and logit models for binary data. See Chapter
+15 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(cmdstanr)
+
+# Parameters
+  # Stan logistic model
+file_logit <- here::here("Robit/logit_tv.stan")
+  # Stan robit model
+file_robit <- here::here("Robit/robit_tv.stan")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 15 Other generalized linear models
+
+## 15.6 Robust regression using the t model
+
+### Robit instead of logit or probit
+
+Simulate clean data.
+
+```{r}
+set.seed(1234)
+
+N <- 50
+df <- 4
+
+x_min <- -9
+x_max <- 9
+a <- 0
+b <- 0.8
+
+data_clean <- 
+  tibble(
+    x = runif(N, min = x_min, max = x_max),
+    y = rbinom(N, 1, prob = plogis(a + b * x))
+  )
+
+data_1 <- c(list(N = N, df = df), as.list(data_clean))
+```
+
+Stan logistic model.
+
+```{r, comment=""}
+file_logit %>% 
+  read_lines() %>% 
+  writeLines()
+```
+
+Stan robit model.
+
+```{r, comment=""}
+file_robit %>% 
+  read_lines() %>% 
+  writeLines()
+```
+
+Compile models.
+
+```{r, message=FALSE}
+model_logit <- cmdstan_model(file_logit)
+model_robit <- cmdstan_model(file_robit)
+```
+
+Sample from logistic model with clean data.
+
+```{r}
+set.seed(693)
+
+fit_1_logit <- 
+  model_logit$sample(data = data_1, refresh = 0, adapt_delta = 0.95)
+
+fit_1_logit
+```
+
+Logistic regression coefficients.
+
+```{r}
+a_1_logit <- median(fit_1_logit$draws("a"))
+b_1_logit <- median(fit_1_logit$draws("b"))
+```
+
+Sample from robit model with clean data.
+
+```{r}
+set.seed(693)
+
+fit_1_robit <- 
+  model_robit$sample(data = data_1, refresh = 0, adapt_delta = 0.95)
+
+fit_1_robit
+```
+
+Robit regression coefficients.
+
+```{r}
+a_1_robit <- median(fit_1_robit$draws("a"))
+b_1_robit <- median(fit_1_robit$draws("b"))
+```
+
+Logistic and robit regressions with clean data.
+
+```{r, fig.asp=0.75}
+lines <- function(a_logit, b_logit, a_robit, b_robit) {
+   tibble(
+    x = seq_range(c(x_min, x_max)),
+    y_logit = plogis(a_logit + b_logit * x),
+    y_robit = pt((a_robit + b_robit * x) / sqrt((df - 2) / df), df = df)
+  ) %>% 
+    pivot_longer(
+      cols = !x,
+      names_to = "model",
+      names_prefix = "y_",
+      values_to = "y"
+    )
+}
+
+lines_clean <- lines(a_1_logit, b_1_logit, a_1_robit, b_1_robit)
+
+plot <- function(data, lines) {
+  ggplot(mapping = aes(x, y)) +
+    geom_point(data = data, alpha = 0.75) +
+    geom_line(aes(color = model), data = lines) +
+    scale_y_continuous(breaks = 0:1, minor_breaks = NULL) +
+    scale_color_discrete(
+      breaks = c("logit", "robit"),
+      labels = c("Logistic regression", "Robit regression")
+    ) +
+    theme(legend.position = "bottom") +
+    labs(color = NULL)
+}
+
+plot(data_clean, lines_clean) +
+  labs(title = "Logistic and robit regressions with clean data")
+```
+
+Add an outlier by flipping the class of one observation.
+
+```{r}
+data_contaminated <- 
+  data_clean %>% 
+  arrange(x) %>% 
+  mutate(y = if_else(row_number() == 4, 1L, y))
+
+data_2 <- c(list(N = N, df = df), as.list(data_contaminated))
+```
+
+Sample from logistic model with contaminated data.
+
+```{r}
+set.seed(693)
+
+fit_2_logit <- 
+  model_logit$sample(data = data_2, refresh = 0, adapt_delta = 0.95)
+
+fit_2_logit
+```
+
+Logistic regression coefficients.
+
+```{r}
+a_2_logit <- median(fit_2_logit$draws("a"))
+b_2_logit <- median(fit_2_logit$draws("b"))
+```
+
+Sample from robit model with contaminated data.
+
+```{r}
+set.seed(693)
+
+fit_2_robit <- 
+  model_robit$sample(data = data_2, refresh = 0, adapt_delta = 0.95)
+
+fit_2_robit
+```
+
+Robit regression coefficients.
+
+```{r}
+a_2_robit <- median(fit_2_robit$draws("a"))
+b_2_robit <- median(fit_2_robit$draws("b"))
+```
+
+Logistic and robit regressions with contaminated data.
+
+```{r, fig.asp=0.75}
+lines_contaminated <- lines(a_2_logit, b_2_logit, a_2_robit, b_2_robit)
+
+plot(data_contaminated, lines_contaminated) +
+  labs(title = "Logistic and robit regressions with contaminated data")
+```
+

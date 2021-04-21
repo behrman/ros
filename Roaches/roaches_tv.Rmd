@@ -1,0 +1,471 @@
+---
+title: "Regression and Other Stories: Roaches"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Analyze the effect of integrated pest management on reducing
+cockroach levels in urban apartments. See Chapter 15 in
+Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(bayesplot)
+library(brms)
+library(rstanarm)
+
+# Parameters
+  # Seed
+SEED <- 3579
+  # Common code
+file_common <- here::here("_common.R")
+
+# Functions
+  # Plot kernel density of data and sample replicates
+plot_density_overlay <- function(y, y_rep) {
+  ggplot(mapping = aes(y)) +
+    stat_density(
+      aes(group = rep, color = "y_rep"),
+      data = 
+        seq_len(nrow(y_rep)) %>% map_dfr(~ tibble(rep = ., y = y_rep[., ])),
+      geom = "line",
+      position = "identity",
+      alpha = 0.5,
+      size = 0.25
+    ) +
+    stat_density(aes(color = "y"), data = tibble(y), geom = "line", size = 1) +
+    scale_y_continuous(breaks = 0) +
+    scale_color_discrete(
+      breaks = c("y", "y_rep"),
+      labels = c("y", expression(y[rep]))
+    ) +
+    theme(legend.text.align = 0) +
+    labs(
+      x = NULL,
+      y = NULL,
+      color = NULL
+    )
+}
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 15 Other generalized linear models
+
+## 15.2 Poisson and negative binomial regression
+
+### Example: zeros in count data
+
+Data
+
+```{r}
+# data(roaches)
+roaches <-
+  roaches %>%
+  as_tibble() %>% 
+  mutate(roach100 = roach1 / 100) %>%
+  relocate(roach100, .after = roach1)
+
+roaches
+```
+
+Fit negative binomial model.
+
+```{r}
+fit_nbinom <-
+  stan_glm(
+    y ~ roach100 + treatment + senior,
+    family = neg_binomial_2(link = "log"),
+    data = roaches,
+    offset = log(exposure2),
+    refresh = 0,
+    seed = SEED
+  )
+
+print(fit_nbinom, digits = 2)
+```
+
+The estimated overdispersion is 1 / `reciprocal_dispersion` = 1 / 0.27 = 3.7. The model is overdispersed compared to Poisson.
+
+LOO log score
+
+```{r}
+loo_nbinom <- loo(fit_nbinom)
+```
+
+Because of the warning message, we will call `loo()` again with the recommended argument.
+
+```{r, message=FALSE}
+loo_nbinom <- loo(fit_nbinom, k_threshold = 0.7)
+
+loo_nbinom
+```
+
+#### Checking model fit by comparing the data, `y`, to the replicated datasets, $y^{rep}$
+
+Simulate data for negative binomial model.
+
+```{r}
+set.seed(SEED)
+
+y_rep_nbinom <- posterior_predict(fit_nbinom)
+
+n_sims <- nrow(y_rep_nbinom)
+n_rep <- 100
+sims_sample <- sample(n_sims, n_rep)
+```
+
+Kernel density of data and `r n_rep` sample replicates from negative binomial model.
+
+```{r}
+plot_density_overlay(
+  y = log10(roaches$y + 1),
+  y_rep = log10(y_rep_nbinom[sims_sample, ] + 1)
+) +
+  scale_x_continuous(breaks = scales::breaks_width(1)) +
+  labs(
+    title = 
+      str_glue(
+        "Kernel density of data and {n_rep} sample replicates from negative binomial model"
+      ),
+    x = "log10(y + 1)"
+  )
+```
+
+Kernel density of data and `r n_rep` sample replicates from negative binomial model using bayesplot.
+
+```{r}
+ppc_dens_overlay(
+  y = log10(roaches$y + 1),
+  yrep = log10(y_rep_nbinom[sims_sample, ] + 1)
+) +
+  theme(
+    axis.line.y = element_blank(),
+    text = element_text(family = "sans")
+  ) +
+  labs(
+    title = "Negative binomial model",
+    x = "log10(y + 1)"
+  )
+```
+
+##### Predictive checking with test statistic
+
+###### Proportion of zero counts
+
+Test statistic for proportion of zero counts.
+
+```{r}
+prop_0 <- function(x) {
+  mean(x == 0)
+}
+```
+
+```{r}
+y_prop_0 <- prop_0(roaches$y)
+
+y_prop_0
+```
+
+```{r}
+y_rep_nbinom_prop_0 <- apply(y_rep_nbinom, 1, prop_0)
+
+summary(y_rep_nbinom_prop_0)
+```
+
+The proportion of zero counts in the replicated datasets varies from 0.21 to 0.49, with a median and mean of 0.34, close to the observed proportion in the data of 0.36.
+
+Distribution of proportion of zero counts in replicates.
+
+```{r, fig.asp=0.75}
+tibble(y_prop_0 = y_rep_nbinom_prop_0) %>% 
+  ggplot(aes(y_prop_0)) +
+  geom_histogram(binwidth = 0.015) +
+  geom_vline(xintercept = y_prop_0, color = "red") +
+  labs(
+    title = "Distribution of proportion of zero counts in replicates",
+    subtitle = "Vertical line is proportion of zero counts in data",
+    x = "Proportion of zero counts in replicate",
+    y = "Count"
+  )
+```
+
+Distribution of proportion of zero counts in replicates using bayesplot.
+
+```{r, message=FALSE}
+ppc_stat(y = roaches$y, yrep = y_rep_nbinom, stat = function(x) mean(x == 0))
+```
+
+###### Maximum counts
+
+```{r}
+y_max <- max(roaches$y)
+
+y_max
+```
+
+```{r}
+y_rep_nbinom_max <- apply(y_rep_nbinom, 1, max)
+
+summary(y_rep_nbinom_max)
+```
+
+The maximum roach count in the data is `r y_max`, but the maximum count in the negative binomial model is close to nine million, which would make sense only in a horror movie. We will introduce another improvement below with the zero-inflated negative binomial model.
+
+#### What if we had used Poisson regression?
+
+Fit Poisson model.
+
+```{r}
+fit_pois <-
+  stan_glm(
+    y ~ roach100 + treatment + senior,
+    family = poisson(link = "log"),
+    data = roaches,
+    offset = log(exposure2),
+    refresh = 0,
+    seed = SEED
+  )
+
+print(fit_pois, digits = 2)
+```
+
+LOO log score
+
+```{r}
+loo_pois <- loo(fit_pois)
+```
+
+Because of the warning message, we will follow the recommendation and use `kfold()` instead of `loo()`.
+
+K-fold log score
+
+```{r, message=FALSE}
+kfold_pois <- kfold(fit_pois, k = 10)
+
+kfold_pois
+```
+
+Compare log scores.
+
+```{r, message=FALSE}
+kfold_nbinom <- kfold(fit_nbinom, k = 10)
+
+loo_compare(kfold_nbinom, kfold_pois)
+```
+
+The negative binomial model has a substantially better log score than the Poisson model.
+
+Simulate data for Poisson model.
+
+```{r}
+set.seed(SEED)
+
+y_rep_pois <- posterior_predict(fit_pois)
+```
+
+Kernel density of data and `r n_rep` sample replicates from Poisson model.
+
+```{r}
+plot_density_overlay(
+  y = log10(roaches$y + 1),
+  y_rep = log10(y_rep_pois[sims_sample, ] + 1)
+) +
+  labs(
+    title = 
+      str_glue(
+        "Kernel density of data and {n_rep} sample replicates from Poisson model"
+      ),
+    x = "log10(y + 1)"
+  )
+```
+
+Kernel density of data and `r n_rep` sample replicates from Poisson model using bayesplot.
+
+```{r}
+ppc_dens_overlay(
+  y = log10(roaches$y + 1),
+  yrep = log10(y_rep_pois[sims_sample, ] + 1)
+) +
+  theme(
+    axis.line.y = element_blank(),
+    text = element_text(family = "sans")
+  ) +
+  labs(
+    title = "Poisson model",
+    x = "log10(y + 1)"
+  )
+```
+
+#### Checking the fit of the non-overdispersed Poisson regression
+
+Test statistic for proportion of zero counts.
+
+```{r}
+y_rep_pois_prop_0 <- apply(y_rep_pois, 1, prop_0)
+
+summary(y_rep_pois_prop_0)
+```
+
+A majority of the replicated datasets have no zero counts, the maximum proportion in all `r n_sims` replicates is 0.0076, and the mean proportion is 0.00070, far below the observed proportion in the data of 0.36. This suggests a potential problem with the model: in reality, many apartments have zero roaches, but this would not be happening if the model were true.
+
+## 15.8 Going beyond generalized linear models
+
+### Cockroaches and the zero-inflated negative binomial model
+
+A zero-inflated negative binomial model is a mixture of two models, a logistic regression to model the proportion of extra zero counts and a negative binomial model to model the non-zero counts. This two-stage model can be modeled directly in Stan or with `brms::brm()` using the `zero_inflated_negbinomial()` family. We'll use the latter here.
+
+Create log-transformed variables.
+
+```{r}
+roaches <- 
+  roaches %>% 
+  mutate(
+    roach1_logp1 = log(roach1 + 1),
+    exposure2_log = log(exposure2)
+  )
+```
+
+Fit zero-inflated negative binomial model.
+
+```{r, message=FALSE, warning=FALSE, error=FALSE, results=FALSE}
+fit_zinbinom <- 
+  brm(
+    formula = 
+      bf(
+        y  ~ roach1_logp1 + treatment + senior + offset(exposure2_log),
+        zi ~ roach1_logp1 + treatment + senior + offset(exposure2_log)
+      ),
+    data = roaches,
+    family = zero_inflated_negbinomial(),
+    prior = set_prior("normal(0, 1)"),
+    save_all_pars = TRUE,
+    seed = SEED,
+    refresh = 0
+  )
+```
+
+```{r}
+fit_zinbinom
+```
+
+LOO log score
+
+```{r}
+loo_zinbinom <- loo(fit_zinbinom)
+```
+
+Because of the warning message, we will call `loo()` again with the recommended argument.
+
+```{r}
+loo_zinbinom <- loo(fit_zinbinom, moment_match = TRUE)
+
+loo_zinbinom
+```
+
+Compare log scores.
+
+```{r}
+loo_compare(loo_nbinom, loo_zinbinom)
+```
+
+The LOO log score comparison supports better predictive performance for the zero-inflated negative binomial model.
+
+Simulate data for zero-inflated negative binomial model.
+
+```{r}
+set.seed(SEED)
+
+y_rep_zinbinom <- posterior_predict(fit_zinbinom)
+```
+
+Kernel density of data and `r n_rep` sample replicates from zero-inflated negative binomial model.
+
+```{r}
+plot_density_overlay(
+  y = log10(roaches$y + 1),
+  y_rep = log10(y_rep_zinbinom[sims_sample, ] + 1)
+) +
+  labs(
+    title = 
+      str_glue(
+        "Kernel density of data and {n_rep} sample replicates\nfrom zero-inflated negative binomial model"
+      ),
+    x = "log10(y + 1)"
+  )
+```
+
+The zero-inflated negative binomial model predictions are visually better than with the negative binomial model.
+
+Kernel density of data and `r n_rep` sample replicates from zero-inflated negative binomial model using bayesplot.
+
+```{r}
+ppc_dens_overlay(
+  y = log10(roaches$y + 1),
+  yrep = log10(y_rep_zinbinom[sims_sample, ] + 1)
+) +
+  theme(
+    axis.line.y = element_blank(),
+    text = element_text(family = "sans")
+  ) +
+  labs(
+    title = "Zero-inflated negative binomial model",
+    x = "log10(y + 1)"
+  )
+```
+
+##### Predictive checking with test statistic
+
+###### Proportion of zero counts
+
+Test statistic for proportion of zero counts.
+
+```{r}
+y_rep_zinbinom_prop_0 <- apply(y_rep_zinbinom, 1, prop_0)
+
+summary(y_rep_zinbinom_prop_0)
+```
+
+The proportion of zero counts in the replicated datasets have a median and mean of closer to the observed proportion in the data of 0.36.
+
+Distribution of proportion of zero counts in replicates.
+
+```{r, fig.asp=0.75}
+tibble(y_prop_0 = y_rep_zinbinom_prop_0) %>% 
+  ggplot(aes(y_prop_0)) +
+  geom_histogram(binwidth = 0.015) +
+  geom_vline(xintercept = y_prop_0, color = "red") +
+  labs(
+    title = "Distribution of proportion of zero counts in replicates",
+    subtitle = "Vertical line is proportion of zero counts in data",
+    x = "Proportion of zero counts in replicate",
+    y = "Count"
+  )
+```
+
+Distribution of proportion of zero counts in replicates using bayesplot.
+
+```{r, message=FALSE}
+ppc_stat(y = roaches$y, yrep = y_rep_zinbinom, stat = function(x) mean(x == 0))
+```
+
+###### Maximum counts
+
+```{r}
+y_rep_zinbinom_max <- apply(y_rep_zinbinom, 1, max)
+
+summary(y_rep_zinbinom_max)
+```
+
+The maximum count in the data is `r y_max`. The maximum count in the replicates for the zero-inflated negative binomial model is much closer to this value than the value of nearly nine million for the negative binomial model.
+

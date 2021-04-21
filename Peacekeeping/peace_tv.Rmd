@@ -1,0 +1,226 @@
+---
+title: "Regression and Other Stories: Peacekeeping"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Outcomes after civil war in countries with and without United
+Nations peacekeeping. See Chapter 1 in Regression and Other
+Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(haven)
+library(lubridate)
+
+# Parameters
+  # Outcomes after civil wars with and without U.N. peacekeeping
+file_peace <- here::here("Peacekeeping/data/pk&pkept_old.dta")
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 1 Overview
+
+## 1.3 Some examples of regression
+
+### Estimating the effects of United Nations peacekeeping, using pre-treatment variables to adjust for differences between treatment and control groups
+
+Data
+
+```{r}
+peace <- 
+  file_peace %>% 
+  read_dta() %>% 
+  select(id:pkop, pcw, morewar, hazard1) %>% 
+  mutate(across(where(is.labelled), as_factor))
+
+glimpse(peace)
+```
+
+Variable labels.
+
+```{r}
+peace %>% 
+  keep(~ "label" %in% names(attributes(.))) %>% 
+  map_chr(~ attr(., "label"))
+```
+
+Conflict ID.
+
+```{r}
+peace %>% 
+  count(id, name = "nrows") %>% 
+  count(nrows)
+```
+
+148 of the conflict IDs have only one row, but 22 have multiple rows. One has seven rows. Let's look at an ID with multiple rows.
+
+```{r}
+peace %>% 
+  group_by(id) %>% 
+  filter(n() == 7) %>% 
+  select(id, cname, cfdate, faildate, t0, t1, pk_dum, pkop)
+```
+
+Haiti had a ceasefire that started on 1994-09-18. The seven rows correspond to seven different time periods. There were peacekeepers for six of these periods (`pk_dum`), though the peacekeeping operation and mission (`pkop`) varied.
+
+We'll add a new variable `peacekeepers` to indicate whether there were peacekeepers at any time. And we'll now collapse the data to one row per conflict ID, using the first row. 
+
+```{r}
+peace <- 
+  peace %>% 
+  group_by(id) %>% 
+  summarize(
+    peacekeepers = any(pk_dum == 1),
+    across(everything(), first)
+  )
+```
+
+We are only interested in conflicts where we know the peacekeeper status.
+
+```{r}
+peace %>% 
+  filter(is.na(peacekeepers)) %>% 
+  select(id, cname, peacekeepers, cfdate, faildate, outcome, pk_dum, pkop)
+```
+
+There are 13 conflicts with no peacekeeper data. We'll remove them.
+
+```{r}
+peace <- 
+  peace %>% 
+  drop_na(peacekeepers)
+
+peace %>% 
+  count(peacekeepers)
+```
+
+157 conflicts remain, of which 41 had peacekeepers.
+
+We will say that a country remained at peace if the ceasefire hadn't failed by the end of the data collection, in other words if `faildate` is `NA`. The `NA` status of `faildate` is also encoded in `morewar`.
+
+```{r}
+peace %>% 
+  count(is.na(faildate), morewar)
+```
+
+The ceasefires held 72 times and failed 85 times.
+
+Let's see the relationship between having peacekeepers and a return to conflict.
+
+```{r}
+peace %>% 
+  count(peacekeepers, peace = is.na(faildate))
+
+peace %>% 
+  group_by(peacekeepers) %>% 
+  summarize(peace_prop = mean(is.na(faildate)))
+```
+
+In about 51% of conflicts with peacekeepers, the ceasefires held, compared to 44% of conflicts without peacekeepers.
+
+If conflict did return, let's see the relationship between having peacekeepers and the length of time for the return.
+
+```{r}
+peace %>% 
+  filter(!is.na(faildate)) %>% 
+  mutate(return_years = interval(cfdate, faildate) / dyears(1)) %>% 
+  group_by(peacekeepers) %>% 
+  summarize(across(return_years, list(mean = mean, median = median)))
+```
+
+In the conflicts where ceasefires did not hold, the ceasefires ended sooner when there were peacekeepers.
+
+If conflict did not return, let's see the relationship between having peacekeepers and the duration of peace. We'll use the end of data collection, 2004-12-31, as the end date.
+
+```{r}
+peace %>% 
+  filter(is.na(faildate)) %>% 
+  mutate(peace_years = interval(cfdate, ymd("2004-12-31")) / dyears(1)) %>% 
+  group_by(peacekeepers) %>% 
+  summarize(across(peace_years, list(mean = mean, median = median)))
+```
+
+In the conflicts where the ceasefires held, the duration of peace was shorter when there were peacekeepers.
+
+Years until return of war.
+
+```{r}
+ceasefire_failed <- 
+  peace %>% 
+  filter(!is.na(faildate)) %>% 
+  mutate(return_years = interval(cfdate, faildate) / dyears(1))
+
+return_years_means <- 
+  ceasefire_failed %>% 
+  group_by(peacekeepers) %>% 
+  summarize(return_years_mean = mean(return_years))
+
+peacekeepers_labels <- 
+  c(
+    "FALSE" = "Without peacekeeping",
+    "TRUE" = "With peacekeeping"
+  )
+
+ceasefire_failed %>% 
+  ggplot(aes(return_years)) +
+  geom_histogram(binwidth = 0.5, boundary = 0) +
+  geom_vline(aes(xintercept = return_years_mean), data = return_years_means) +
+  scale_x_continuous(breaks = scales::breaks_width(2)) +
+  facet_grid(
+    rows = vars(peacekeepers),
+    labeller = labeller(peacekeepers = peacekeepers_labels)
+  ) +
+  labs(
+    title = "Years until return of war",
+    x = "Years",
+    y = "Count"
+  )
+```
+
+Years until return of war.
+
+```{r}
+
+ceasefire_failed %>% 
+  drop_na(hazard1) %>% 
+  ggplot(aes(hazard1, return_years, color = peacekeepers)) +
+  geom_point() +
+  scale_x_log10(
+    breaks = c(1.4e-5, 4.5e-2),
+    minor_breaks = NULL,
+    labels = c("Better conditions", "Worse conditions")
+  ) +
+  scale_y_continuous(breaks = scales::breaks_width(5)) +
+  scale_color_discrete(
+    breaks = c(FALSE, TRUE),
+    labels = c("Without peacekeeping", "Without peacekeeping")
+  ) +
+  theme(
+    axis.ticks.x = element_blank(),
+    legend.position = "bottom",
+    panel.grid.major.x = element_blank()
+  ) +
+  labs(
+    title = "Years until return of war",
+    x = "Pre-treatment measure of conditions in the country",
+    y = "Years",
+    color = NULL
+  )
+```
+
+The plot uses `hazard1` as a measure of the conditions in the country at the time of the ceasefire. Below a threshold of this measure, it was possible for ceasefires to last 10 years or longer. Over this threshold, all of the countries returned to war in 5 years or less.
+

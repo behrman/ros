@@ -1,0 +1,123 @@
+---
+title: "Regression and Other Stories: Scalability"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r Sys.Date()`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Demonstrate how the computation time scales with bigger data. See
+Chapter 22 in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+library(bench)
+library(rstanarm)
+
+# Parameters
+  # Common code
+file_common <- here::here("_common.R")
+
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 22 Advanced regression and multilevel models
+
+## 22.8 Computational efficiency
+
+### Parallel processing
+
+```{r}
+getOption("mc.cores")
+
+options(mc.cores = parallel::detectCores())
+
+getOption("mc.cores")
+```
+
+### Mode-based approximations
+
+Simulated data.
+
+```{r}
+set.seed(1656)
+
+a <-  2
+b <- 3
+sigma <- 1
+
+nrow <- 1e4
+ncol <- 100
+
+data <- 
+  set_names(c("x", str_c("noise_", seq_len(ncol - 1)))) %>% 
+  map_dfc(~ rnorm(nrow)) %>% 
+  mutate(
+    y = if_else(a + b * x + sigma * rnorm(nrow) > 0, 1, 0)
+  )
+```
+
+We then fit the logistic regression three different ways:
+
+```{r, warning=FALSE}
+set.seed(407)
+
+benchmarks <- 
+  bench::mark(
+    fit_1 <- glm(y ~ ., family = binomial(link = "logit"), data = data),
+    fit_2 <- 
+      stan_glm(
+        y ~ .,
+        family = binomial(link = "logit"),
+        data = data,
+        algorithm = "optimizing"
+      ),
+    fit_3 <- 
+      stan_glm(
+        y ~ .,
+        family = binomial(link = "logit"),
+        data = data
+      ),
+    check = FALSE,
+    memory = FALSE
+  )
+```
+
+```{r, warning=FALSE}
+v <-
+  summary(benchmarks, relative = TRUE) %>% 
+  select(relative_time = median)
+  
+v
+```
+
+`stan_glm()` with the optimizing algorithm took `r format(v$relative_time[2], digits = 1, nsmall = 1)` times as long as `glm()`. `stan_glm()` with the default sampling algorithm took `r round(v$relative_time[3])` times as long. In other words, `stan_glm()` with the sampling algorithm took `r round(v$relative_time[3] / v$relative_time[2])` times longer than with the optimizing algorithm.
+
+Let's compare the coefficients for the three models:
+
+```{r}
+tibble(
+  model = list(fit_1, fit_2, fit_3),
+  `(Intercept)` = map_dbl(model, ~ coef(.)[["(Intercept)"]]),
+  x = map_dbl(model, ~ coef(.)[["x"]]),
+  noise_max = 
+    map_dbl(
+      model,
+      ~ coef(.) %>% 
+        keep(str_detect(names(.), "^noise_")) %>% 
+        max(abs(.))
+    )
+) %>% 
+  select(!model)
+```
+
+The coefficients in all models for the non-noise terms are close to each other, especially those from `stan_glm()`. In all cases, the coefficients of the noise terms are small.
+

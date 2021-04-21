@@ -1,0 +1,172 @@
+---
+title: "Regression and Other Stories: Congress"
+author: "Andrew Gelman, Jennifer Hill, Aki Vehtari"
+date: "`r format(Sys.Date())`"
+output:
+  github_document:
+    toc: true
+---
+Tidyverse version by Bill Behrman.
+
+Predictive uncertainty for congressional elections. See Chapter 2
+in Regression and Other Stories.
+
+-------------
+
+```{r, message=FALSE}
+# Packages
+library(tidyverse)
+
+# Parameters
+  # Directory with congressional election data
+dir_elections <- here::here("Congress/data")
+  # Data variables
+elections_rename <- 
+  c(
+    state_code = "X1",
+    district_code = "X2",
+    incumbent = "X3",
+    d_vote = "X4",
+    r_vote = "X5"
+  )
+  # Regions
+regions <- c("Northeast", "Midwest", "South", "West")
+  # Common code
+file_common <- here::here("_common.R")
+  
+#===============================================================================
+
+# Run common code
+source(file_common)
+```
+
+# 2 Data and measurement
+
+## 2.3 All graphs are comparisons
+
+### Grids of plots
+
+Data
+
+```{r, message=FALSE}
+elections <- 
+  fs::dir_ls(path = dir_elections, regexp = "\\d{4}.asc$") %>% 
+  map_dfr(~ read_table2(., col_names = FALSE), .id = "year") %>% 
+  rename(!!! elections_rename) %>% 
+  mutate(
+    year = str_match(year, "(\\d{4}).asc$")[, 2] %>% as.integer(),
+    across(!year, na_if, -9),
+    incumbent =
+      case_when(
+        incumbent %in% c(-1, 1) ~ TRUE,
+        incumbent == 0 ~ FALSE,
+        TRUE ~ NA
+      )
+  )
+```
+
+```{r}
+elections %>% 
+  count(is.na(d_vote), is.na(r_vote))
+```
+
+We'll omit races with `NA`s for votes.
+
+```{r}
+elections <- 
+  elections %>% 
+  drop_na(d_vote, r_vote)
+```
+
+```{r}
+range(elections$state_code)
+
+elections %>% 
+  count(state_code) %>% 
+  slice_max(order_by = state_code, n = 5)
+```
+
+The formula in the original code to assign regions is `floor(state_code / 20) + 1`. Since there are only four regions, we will omit rows with `state_code` 81 and 82, for which the formula would yield 5.
+
+```{r}
+elections <- 
+  elections %>% 
+  filter(!state_code %in% 81:82) %>% 
+  mutate(region = regions[floor(state_code / 20) + 1])
+```
+
+Finally, we'll calculate the Democratic proportion of the vote for the current and previous election.
+
+```{r}
+elections <- 
+  elections %>% 
+  mutate(d_prop = d_vote / (d_vote + r_vote))
+
+elections <- 
+  sort(unique(elections$year))[-1] %>% 
+  map_dfr(
+    ~ elections %>% 
+      filter(year == .x) %>% 
+      inner_join(
+        elections %>% 
+          filter(year == .x - 2) %>% 
+          select(state_code, district_code, d_prop_prev = d_prop),
+        by = c("state_code", "district_code")
+      )
+  )
+
+elections %>% 
+  slice(1:10) %>% 
+  knitr::kable()
+```
+
+Swings in U.S. congressional elections.
+
+```{r, fig.asp=0.8, fig.width=10}
+v <- 
+  elections %>% 
+  filter(
+    year %in% c(1950, 1970, 1990),
+    !is.na(incumbent),
+    abs(d_prop - 0.5) < 0.3 & abs(d_prop_prev - 0.5) < 0.3
+  ) %>% 
+  mutate(period = str_glue("{year - 2} to {year}")) %>% 
+  {
+    bind_rows(
+      filter(., incumbent),
+      filter(., !incumbent)
+    )
+  }
+
+v %>% 
+  ggplot() +
+  geom_vline(xintercept = 0.5, color = "grey60") +
+  geom_hline(yintercept = 0, color = "grey60") +
+  geom_point(aes(d_prop_prev, d_prop - d_prop_prev, color = incumbent)) +
+  facet_grid(rows = vars(period), cols = vars(region)) +
+  coord_fixed() +
+  scale_x_continuous(
+    breaks = scales::breaks_width(0.1),
+    minor_breaks = NULL,
+    labels = scales::label_percent(accuracy = 1),
+    expand = expansion(add = 0.05)
+  ) +
+  scale_y_continuous(
+    breaks = scales::breaks_width(0.1),
+    minor_breaks = NULL,
+    labels = scales::label_percent(accuracy = 1)
+  ) +
+  scale_color_discrete(
+    breaks = c(FALSE, TRUE),
+    labels = c("Open seat", "Incumbent running")
+  ) +
+  theme(legend.position = "bottom") +
+  labs(
+    title = "Swings in U.S. congressional elections",
+    subtitle = "Where Democratic percentage was between 20 - 80%",
+    x = "Democratic percentage in first election",
+    y = "Swing in Democratic vote in next election",
+    color = NULL
+  )
+```
+

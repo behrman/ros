@@ -1,0 +1,9 @@
+bypass.csv contains (hypothetical) data for an experiment to estimate
+the effect of a new procedure for coronary bypass surgery that is
+supposed to help with the postoperative healing process. See Chapter
+21 in Regression and Other Stories.
+
+stay     - the length of hospital stay after surgery
+age      - the age of the patient
+new      - the indicator for whether the new surgical procedure was used
+severity - preoperative disease severity
