@@ -44,8 +44,8 @@ Regression and Other Stories - Tidyverse Examples
 -   [Examples alphabetically](#examples-alphabetically)
 
 This repository contains [Tidyverse](https://www.tidyverse.org/)
-implementations of code from *Regression and Other Stories* by [Andrew
-Gelman](http://www.stat.columbia.edu/~gelman/), [Jennifer
+implementations of examples from *Regression and Other Stories* by
+[Andrew Gelman](http://www.stat.columbia.edu/~gelman/), [Jennifer
 Hill](https://steinhardt.nyu.edu/people/jennifer-hill), and [Aki
 Vehtari](https://users.aalto.fi/~ave/) (2020).
 
