@@ -210,7 +210,7 @@ Tidyverse version by [Bill Behrman](https://datalab.stanford.edu/bill).
 ### 19  Causal inference using regression on the treatment variable
 - [ElectricCompany/](ElectricCompany/)
     - [electric_tv.md](ElectricCompany/electric_tv.md) - Analysis of "Electric Company" data
-- [Incentives/]((Incentives/))
+- [Incentives/](Incentives/)
     - [incentives_tv.md](Incentives/incentives_tv.md) - Simple analysis of incentives data
 - [Cows/](Cows/)
 

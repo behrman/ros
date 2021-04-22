@@ -345,7 +345,7 @@ Tidyverse version by [Bill Behrman](https://datalab.stanford.edu/bill).
 -   [ElectricCompany/](ElectricCompany/)
     -   [electric\_tv.md](ElectricCompany/electric_tv.md) - Analysis of
         “Electric Company” data
--   [Incentives/]((Incentives/))
+-   [Incentives/](Incentives/)
     -   [incentives\_tv.md](Incentives/incentives_tv.md) - Simple
         analysis of incentives data
 -   [Cows/](Cows/)
