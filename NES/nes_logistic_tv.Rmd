@@ -171,32 +171,32 @@ Logistic regression coefficient of income by election year: With 50% uncertainty
 ```{r}
 set.seed(660)
 
-coef_time_series <- function(.data, formula) {
-  .data %>% 
-  nest(data = !year) %>% 
-  mutate(
-    fit =
-      map(
-        data,
-        ~ stan_glm(
-          formula,
-          family = binomial(link = "logit"),
-          data = .,
-          refresh = 0
+coef_time_series <- function(data, formula) {
+  data %>% 
+    nest(data = !year) %>% 
+    rowwise() %>% 
+    mutate(
+      fit =
+        list(
+          stan_glm(
+            formula,
+            family = binomial(link = "logit"),
+            data = data,
+            refresh = 0
+          )
+        ),
+      coefs =
+        list(
+          left_join(
+            enframe(coef(fit), name = "var", value = "coef"),
+            enframe(se(fit), name = "var", value = "se"),
+            by = "var"
+          )
         )
-      ),
-    coefs =
-      map(
-        fit,
-        ~ left_join(
-          enframe(coef(.), name = "var", value = "coef"),
-          enframe(se(.), name = "var", value = "se"),
-          by = "var"
-        )
-      )
-  ) %>% 
-  select(!c(data, fit)) %>% 
-  unnest(cols = coefs)
+    ) %>% 
+    ungroup() %>% 
+    select(!c(data, fit)) %>% 
+    unnest(cols = coefs)
 }
 
 coefs <- coef_time_series(nes, formula = rvote ~ income)
@@ -460,47 +460,47 @@ coefs <-
   bind_rows(
     nes %>% 
       nest(data = !year) %>% 
+      rowwise() %>% 
       mutate(
         method = "glm",
         fit = 
-          map(
-            data,
-            ~ glm(formula, family = binomial(link = "logit"), data = .)
+          list(
+            glm(formula, family = binomial(link = "logit"), data = data)
           ),
         coefs =
-          map(
-            fit,
-            ~ left_join(
-              enframe(coef(.), name = "var", value = "coef"),
-              enframe(arm::se.coef(.), name = "var", value = "se"),
+          list(
+            left_join(
+              enframe(coef(fit), name = "var", value = "coef"),
+              enframe(arm::se.coef(fit), name = "var", value = "se"),
               by = "var"
             )
           )
-      ),
+      ) %>% 
+      ungroup(),
     nes %>% 
       nest(data = !year) %>% 
+      rowwise() %>% 
       mutate(
         method = "stan_glm",
         fit = 
-          map(
-            data,
-            ~ stan_glm(
+          list(
+            stan_glm(
               formula,
               family = binomial(link = "logit"),
-              data = .,
+              data = data,
               refresh = 0
             )
           ),
         coefs =
-          map(
-            fit,
-            ~ left_join(
-              enframe(coef(.), name = "var", value = "coef"),
-              enframe(se(.), name = "var", value = "se"),
+          list(
+            left_join(
+              enframe(coef(fit), name = "var", value = "coef"),
+              enframe(se(fit), name = "var", value = "se"),
               by = "var"
             )
           )
-      )
+      ) %>% 
+      ungroup()
   )
 ```
 

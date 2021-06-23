@@ -1,7 +1,7 @@
 Regression and Other Stories: Scalability
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-06-23
 
 -   [22 Advanced regression and multilevel
     models](#22-advanced-regression-and-multilevel-models)
@@ -19,7 +19,6 @@ Chapter 22 in Regression and Other Stories.
 ``` r
 # Packages
 library(tidyverse)
-library(bench)
 library(rstanarm)
 
 # Parameters
@@ -112,29 +111,28 @@ v
     #>   relative_time
     #>           <dbl>
     #> 1          1   
-    #> 2          1.82
-    #> 3         92.0
+    #> 2          1.81
+    #> 3         97.3
 
 `stan_glm()` with the optimizing algorithm took 1.8 times as long as
-`glm()`. `stan_glm()` with the default sampling algorithm took 92 times
+`glm()`. `stan_glm()` with the default sampling algorithm took 97 times
 as long. In other words, `stan_glm()` with the sampling algorithm took
-51 times longer than with the optimizing algorithm.
+54 times longer than with the optimizing algorithm.
 
 Let’s compare the coefficients for the three models:
 
 ``` r
-tibble(
-  model = list(fit_1, fit_2, fit_3),
-  `(Intercept)` = map_dbl(model, ~ coef(.)[["(Intercept)"]]),
-  x = map_dbl(model, ~ coef(.)[["x"]]),
-  noise_max = 
-    map_dbl(
-      model,
-      ~ coef(.) %>% 
-        keep(str_detect(names(.), "^noise_")) %>% 
-        max(abs(.))
-    )
-) %>% 
+tibble(model = list(fit_1, fit_2, fit_3)) %>% 
+  rowwise() %>% 
+  mutate(
+    `(Intercept)` = coef(model)[["(Intercept)"]],
+    x = coef(model)[["x"]],
+    noise_max = 
+      coef(model) %>% 
+      keep(str_detect(names(.), "^noise_")) %>% 
+      max(abs(.))
+  ) %>% 
+  ungroup() %>% 
   select(!model)
 ```
 

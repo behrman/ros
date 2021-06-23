@@ -108,11 +108,10 @@ n_newcomb <- nrow(newcomb)
 
 y_rep_tidy <- 
   sims %>% 
-  pmap_dfr(
-    ~ tibble(y = rnorm(n_newcomb, mean = .x, sd = .y)),
-    .id = "rep"
-  ) %>% 
-  mutate(rep = as.integer(rep))
+  mutate(rep = row_number()) %>% 
+  group_by(rep) %>% 
+  summarize(y = rnorm(n_newcomb, mean = `(Intercept)`, sd = sigma)) %>% 
+  ungroup()
 
 y_rep_tidy
 ```

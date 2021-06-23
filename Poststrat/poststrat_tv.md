@@ -1,7 +1,7 @@
 Regression and Other Stories: Poststratification
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-06-23
 
 -   [17 Poststratification and missing-data
     imputation](#17-poststratification-and-missing-data-imputation)
@@ -97,7 +97,7 @@ poll_stats %>%
 
     #> # A tibble: 3 x 2
     #>   party       vote_pct
-    #> * <chr>          <dbl>
+    #>   <chr>          <dbl>
     #> 1 Democrat         100
     #> 2 Independent      100
     #> 3 Republican       100
@@ -115,9 +115,9 @@ poll <-
       if_else(!is.na(candidate), vote, first(n) - sum(vote[!is.na(candidate)]))
   ) %>% 
   ungroup() %>% 
-  mutate(vote = map2(candidate, vote, rep)) %>% 
-  select(party, vote) %>% 
-  unnest(vote)
+  rowwise(party) %>% 
+  summarize(tibble(vote = rep(candidate, times = vote))) %>% 
+  ungroup()
 
 poll
 ```

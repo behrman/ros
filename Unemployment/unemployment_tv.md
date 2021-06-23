@@ -1,7 +1,7 @@
 Regression and Other Stories: Unemployment
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-06-23
 
 -   [11 Assumptions, diagnostics, and model
     evaluation](#11-assumptions-diagnostics-and-model-evaluation)
@@ -155,11 +155,12 @@ unemployment_sim <- function(intercept, slope, sigma) {
 
 y_rep <- 
   sims %>% 
-  pmap_dfr(
-    ~ unemployment_sim(intercept = ..1, slope = ..2, sigma = ..3),
-    .id = "rep"
+  mutate(rep = row_number()) %>% 
+  rowwise(rep) %>% 
+  summarize(
+    unemployment_sim(intercept = `(Intercept)`, slope = y_lag, sigma = sigma)
   ) %>% 
-  mutate(rep = as.integer(rep))
+  ungroup()
 
 y_rep
 ```

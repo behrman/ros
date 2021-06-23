@@ -16,7 +16,6 @@ Chapter 22 in Regression and Other Stories.
 ```{r, message=FALSE}
 # Packages
 library(tidyverse)
-library(bench)
 library(rstanarm)
 
 # Parameters
@@ -104,18 +103,17 @@ v
 Let's compare the coefficients for the three models:
 
 ```{r}
-tibble(
-  model = list(fit_1, fit_2, fit_3),
-  `(Intercept)` = map_dbl(model, ~ coef(.)[["(Intercept)"]]),
-  x = map_dbl(model, ~ coef(.)[["x"]]),
-  noise_max = 
-    map_dbl(
-      model,
-      ~ coef(.) %>% 
-        keep(str_detect(names(.), "^noise_")) %>% 
-        max(abs(.))
-    )
-) %>% 
+tibble(model = list(fit_1, fit_2, fit_3)) %>% 
+  rowwise() %>% 
+  mutate(
+    `(Intercept)` = coef(model)[["(Intercept)"]],
+    x = coef(model)[["x"]],
+    noise_max = 
+      coef(model) %>% 
+      keep(str_detect(names(.), "^noise_")) %>% 
+      max(abs(.))
+  ) %>% 
+  ungroup() %>% 
   select(!model)
 ```
 

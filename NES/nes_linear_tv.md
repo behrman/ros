@@ -1,7 +1,7 @@
 Regression and Other Stories: National election study
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-06-22
 
 -   [10 Linear regression with multiple
     predictors](#10-linear-regression-with-multiple-predictors)
@@ -196,26 +196,26 @@ set.seed(178)
 coefs <- 
   nes %>% 
   nest(data = !year) %>% 
+  rowwise() %>% 
   mutate(
     fit =
-      map(
-        data,
-        ~ stan_glm(
+      list(
+        stan_glm(
           partyid7 ~ real_ideo + race_adj + age + educ1 + female + income,
-          data = .,
+          data = data,
           refresh = 0
         )
       ),
     coefs =
-      map(
-        fit,
-        ~ left_join(
-          enframe(coef(.), name = "var", value = "coef"),
-          enframe(se(.), name = "var", value = "se"),
+      list(
+        left_join(
+          enframe(coef(fit), name = "var", value = "coef"),
+          enframe(se(fit), name = "var", value = "se"),
           by = "var"
         )
       )
   ) %>% 
+  ungroup() %>% 
   select(!c(data, fit)) %>% 
   unnest(cols = coefs)
 

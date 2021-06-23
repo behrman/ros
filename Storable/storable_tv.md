@@ -1,7 +1,7 @@
 Regression and Other Stories: Storable
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-06-23
 
 -   [15 Other generalized linear
     models](#15-other-generalized-linear-models)
@@ -83,7 +83,7 @@ data %>%
 
     #> # A tibble: 3 x 2
     #>   n_rows     n
-    #> *  <int> <int>
+    #>    <int> <int>
     #> 1     20    10
     #> 2     29     1
     #> 3     30    76
@@ -158,13 +158,13 @@ fit_people <-
   data %>% 
   filter(person %in% people$person) %>% 
   nest(data = !person) %>% 
+  rowwise() %>% 
   mutate(
-    fit =
-      map(
-        data,
-        ~ stan_polr(
+    fit = 
+      list(
+        stan_polr(
           vote_ord ~ value,
-          data = .,
+          data = data,
           refresh = 0,
           prior = R2(location = 0.3, what = "mean"),
           adapt_delta = 0.9999
@@ -181,11 +181,12 @@ Calculate cutpoints and sigma for each person.
 data_people <- 
   fit_people %>% 
   mutate(
-    sims = map(fit, as_tibble),
-    c_1.5 = map_dbl(sims, ~ median(.$`1|2` / .$value)),
-    c_2.5 = map_dbl(sims, ~ median(.$`2|3` / .$value)),
-    sigma = map_dbl(sims, ~ median(1 / .$value))
+    sims = list(as_tibble(fit)),
+    c_1.5 = median(sims$`1|2` / sims$value),
+    c_2.5 =  median(sims$`2|3` / sims$value),
+    sigma = median(1 / sims$value)
   ) %>% 
+  ungroup() %>% 
   select(!c(fit, sims)) %>% 
   mutate(person = factor(person, levels = people$person))
 ```

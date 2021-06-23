@@ -1,7 +1,7 @@
 Regression and Other Stories: Poisson Example
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-06-23
 
 -   [15 Other generalized linear
     models](#15-other-generalized-linear-models)
@@ -112,11 +112,11 @@ set.seed(SEED)
 
 phi_grid <- c(0.1, 1, 10)
 
-data_nbinom <- 
-  tibble(
-    phi = phi_grid,
-    data = 
-      map(phi, ~ tibble(x, y = MASS::rnegbin(n, mu = exp(linpred), theta = .)))
+data_nbinom <-
+  tibble(phi = phi_grid) %>% 
+  rowwise() %>% 
+  mutate(
+    data = list(tibble(x, y = MASS::rnegbin(n, mu = exp(linpred), theta = phi)))
   )
 ```
 
@@ -127,17 +127,16 @@ fit_nbinom <-
   data_nbinom %>% 
   mutate(
     fit =
-      map(
-        data,
-        ~ stan_glm(
+      list(
+        stan_glm(
           y ~ x,
           family = neg_binomial_2(link = "log"),
-          data = .,
+          data = data,
           refresh = 0,
           seed = SEED
         )
       )
-  ) %>% 
+  ) %>%
   select(!data)
 
 for (i in seq_len(nrow(fit_nbinom))) {
@@ -211,11 +210,10 @@ fitted_curves <-
   fit_nbinom %>% 
   mutate(
     data =
-      map(
-        fit,
-        ~ tibble(
+      list(
+        tibble(
           x = seq_range(x), 
-          y = exp(coef(.)[["(Intercept)"]] + coef(.)[["x"]] * x)
+          y = exp(coef(fit)[["(Intercept)"]] + coef(fit)[["x"]] * x)
         )
       )
   ) %>% 

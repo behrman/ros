@@ -1,7 +1,7 @@
 Regression and Other Stories: National election study
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-06-22
 
 -   [13 Logistic regression](#13-logistic-regression)
     -   [13.1 Logistic regression with a single
@@ -178,7 +178,7 @@ nes %>%
 
     #> # A tibble: 5 x 2
     #>   income     n
-    #> *  <int> <int>
+    #>    <int> <int>
     #> 1      1  5501
     #> 2      2  5642
     #> 3      3 11399
@@ -329,32 +329,32 @@ uncertainty intervals.
 ``` r
 set.seed(660)
 
-coef_time_series <- function(.data, formula) {
-  .data %>% 
-  nest(data = !year) %>% 
-  mutate(
-    fit =
-      map(
-        data,
-        ~ stan_glm(
-          formula,
-          family = binomial(link = "logit"),
-          data = .,
-          refresh = 0
+coef_time_series <- function(data, formula) {
+  data %>% 
+    nest(data = !year) %>% 
+    rowwise() %>% 
+    mutate(
+      fit =
+        list(
+          stan_glm(
+            formula,
+            family = binomial(link = "logit"),
+            data = data,
+            refresh = 0
+          )
+        ),
+      coefs =
+        list(
+          left_join(
+            enframe(coef(fit), name = "var", value = "coef"),
+            enframe(se(fit), name = "var", value = "se"),
+            by = "var"
+          )
         )
-      ),
-    coefs =
-      map(
-        fit,
-        ~ left_join(
-          enframe(coef(.), name = "var", value = "coef"),
-          enframe(se(.), name = "var", value = "se"),
-          by = "var"
-        )
-      )
-  ) %>% 
-  select(!c(data, fit)) %>% 
-  unnest(cols = coefs)
+    ) %>% 
+    ungroup() %>% 
+    select(!c(data, fit)) %>% 
+    unnest(cols = coefs)
 }
 
 coefs <- coef_time_series(nes, formula = rvote ~ income)
@@ -764,7 +764,7 @@ nes %>%
 
     #> # A tibble: 2 x 2
     #>   black     n
-    #> * <int> <int>
+    #>   <int> <int>
     #> 1     0 12571
     #> 2     1  1186
 
@@ -775,7 +775,7 @@ nes %>%
 
     #> # A tibble: 2 x 2
     #>   female     n
-    #> *  <int> <int>
+    #>    <int> <int>
     #> 1      0  6312
     #> 2      1  7445
 
@@ -790,47 +790,47 @@ coefs <-
   bind_rows(
     nes %>% 
       nest(data = !year) %>% 
+      rowwise() %>% 
       mutate(
         method = "glm",
         fit = 
-          map(
-            data,
-            ~ glm(formula, family = binomial(link = "logit"), data = .)
+          list(
+            glm(formula, family = binomial(link = "logit"), data = data)
           ),
         coefs =
-          map(
-            fit,
-            ~ left_join(
-              enframe(coef(.), name = "var", value = "coef"),
-              enframe(arm::se.coef(.), name = "var", value = "se"),
+          list(
+            left_join(
+              enframe(coef(fit), name = "var", value = "coef"),
+              enframe(arm::se.coef(fit), name = "var", value = "se"),
               by = "var"
             )
           )
-      ),
+      ) %>% 
+      ungroup(),
     nes %>% 
       nest(data = !year) %>% 
+      rowwise() %>% 
       mutate(
         method = "stan_glm",
         fit = 
-          map(
-            data,
-            ~ stan_glm(
+          list(
+            stan_glm(
               formula,
               family = binomial(link = "logit"),
-              data = .,
+              data = data,
               refresh = 0
             )
           ),
         coefs =
-          map(
-            fit,
-            ~ left_join(
-              enframe(coef(.), name = "var", value = "coef"),
-              enframe(se(.), name = "var", value = "se"),
+          list(
+            left_join(
+              enframe(coef(fit), name = "var", value = "coef"),
+              enframe(se(fit), name = "var", value = "se"),
               by = "var"
             )
           )
-      )
+      ) %>% 
+      ungroup()
   )
 ```
 
@@ -850,7 +850,7 @@ for (i in seq(1960, 1972, 4)) {
 ```
 
     #> 1960 
-    #> glm(formula = formula, family = binomial(link = "logit"), data = .)
+    #> glm(formula = formula, family = binomial(link = "logit"), data = data)
     #>             coef.est coef.se
     #> (Intercept) -0.14     0.23  
     #> female       0.24     0.14  
@@ -861,7 +861,7 @@ for (i in seq(1960, 1972, 4)) {
     #>   residual deviance = 1200.7, null deviance = 1212.9 (difference = 12.3)
     #> 
     #> 1964 
-    #> glm(formula = formula, family = binomial(link = "logit"), data = .)
+    #> glm(formula = formula, family = binomial(link = "logit"), data = data)
     #>             coef.est coef.se
     #> (Intercept)  -1.15     0.22 
     #> female       -0.09     0.14 
@@ -872,7 +872,7 @@ for (i in seq(1960, 1972, 4)) {
     #>   residual deviance = 1250.2, null deviance = 1334.5 (difference = 84.4)
     #> 
     #> 1968 
-    #> glm(formula = formula, family = binomial(link = "logit"), data = .)
+    #> glm(formula = formula, family = binomial(link = "logit"), data = data)
     #>             coef.est coef.se
     #> (Intercept)  0.47     0.24  
     #> female      -0.01     0.15  
@@ -883,7 +883,7 @@ for (i in seq(1960, 1972, 4)) {
     #>   residual deviance = 1061.9, null deviance = 1168.6 (difference = 106.7)
     #> 
     #> 1972 
-    #> glm(formula = formula, family = binomial(link = "logit"), data = .)
+    #> glm(formula = formula, family = binomial(link = "logit"), data = data)
     #>             coef.est coef.se
     #> (Intercept)  0.67     0.18  
     #> female      -0.25     0.12  

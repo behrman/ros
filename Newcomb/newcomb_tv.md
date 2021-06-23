@@ -1,7 +1,7 @@
 Regression and Other Stories: Newcomb
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-06-22
 
 -   [11 Assumptions, diagnostics, and model
     evaluation](#11-assumptions-diagnostics-and-model-evaluation)
@@ -149,11 +149,10 @@ n_newcomb <- nrow(newcomb)
 
 y_rep_tidy <- 
   sims %>% 
-  pmap_dfr(
-    ~ tibble(y = rnorm(n_newcomb, mean = .x, sd = .y)),
-    .id = "rep"
-  ) %>% 
-  mutate(rep = as.integer(rep))
+  mutate(rep = row_number()) %>% 
+  group_by(rep) %>% 
+  summarize(y = rnorm(n_newcomb, mean = `(Intercept)`, sd = sigma)) %>% 
+  ungroup()
 
 y_rep_tidy
 ```

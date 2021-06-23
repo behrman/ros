@@ -1,7 +1,7 @@
 Regression and Other Stories: Poststratification 2
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-06-23
 
 -   [17 Poststratification and missing-data
     imputation](#17-poststratification-and-missing-data-imputation)
@@ -92,29 +92,28 @@ poststrat <-
     age = c("18 - 29", "30 - 44", "45 - 64", "65+"),
     ethnicity = c("White", "Black", "Hispanic", "Other")
   ) %>% 
+  mutate(across(c(sex, age, ethnicity), fct_inorder)) %>% 
+  rowwise() %>% 
   mutate(
-    across(c(sex, age, ethnicity), fct_inorder),
     n = 
-      pmap_dbl(
-        list(sex, age, ethnicity),
-        ~ pop * param("sex", ..1, pop_prop) * param("age", ..2, pop_prop) *
-          param("ethnicity", ..3, pop_prop)
-      ),
+      pop *
+      param("sex", sex, pop_prop) *
+      param("age", age, pop_prop) *
+      param("ethnicity", ethnicity, pop_prop),
     response =
-      pmap_dbl(
-        list(sex, age, ethnicity),
-        ~ response_baseline * param("sex", ..1, response) *
-          param("age", ..2, response) * param("ethnicity", ..3, response)
-      ),
+      response_baseline * 
+      param("sex", sex, response) *
+      param("age", age, response) *
+      param("ethnicity", ethnicity, response),
     yes_prob =
-      pmap_dbl(
-        list(sex, age, ethnicity),
-        ~ plogis(
-          coef_intercept + param("sex", ..1, coef) + param("age", ..2, coef) +
-            param("ethnicity", ..3, coef)
-        )
+      plogis(
+        coef_intercept +
+          param("sex", sex, coef) +
+          param("age", age, coef) +
+          param("ethnicity", ethnicity, coef)
       )
-  )
+  ) %>% 
+  ungroup()
 ```
 
 We then sample from the assumed population with the assumed response

@@ -95,9 +95,9 @@ poll <-
       if_else(!is.na(candidate), vote, first(n) - sum(vote[!is.na(candidate)]))
   ) %>% 
   ungroup() %>% 
-  mutate(vote = map2(candidate, vote, rep)) %>% 
-  select(party, vote) %>% 
-  unnest(vote)
+  rowwise(party) %>% 
+  summarize(tibble(vote = rep(candidate, times = vote))) %>% 
+  ungroup()
 
 poll
 ```
