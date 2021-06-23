@@ -1,7 +1,7 @@
 Regression and Other Stories: Arsenic model residuals
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-06-23
 
 -   [14 Working with logistic
     regression](#14-working-with-logistic-regression)
@@ -193,8 +193,8 @@ binned_means <- function(x, y, n_bins = 40) {
 Plot binned residuals.
 
 ``` r
-plot_binned_residuals <- function(.data) {
-  .data %>% 
+plot_binned_residuals <- function(data) {
+  data %>% 
     ggplot(aes(x_mean)) +
     geom_hline(yintercept = 0, color = "white", size = 2) +
     geom_line(aes(y = 2 * y_se), color = "grey60") +

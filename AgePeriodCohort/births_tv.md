@@ -1,7 +1,7 @@
 Regression and Other Stories: AgePeriodCohort
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-06-23
 
 -   [2 Data and measurement](#2-data-and-measurement)
     -   [2.4 Data and adjustment: trends in mortality
@@ -136,14 +136,14 @@ A helper function to set the mortality rates for all years to that of a
 given year.
 
 ``` r
-set_rates <- function(.data, rate_year) {
-  .data %>% 
+set_rates <- function(data, rate_year) {
+  data %>% 
     left_join(
-      .data %>% 
+      data %>% 
         filter(year == rate_year) %>% 
         mutate(rate = deaths / population * 1e5) %>% 
         select(!c(year, deaths, population)),
-      by = names(.data) %>% setdiff(c("year", "deaths", "population"))
+      by = names(data) %>% setdiff(c("year", "deaths", "population"))
     )
 }
 ```
@@ -193,13 +193,13 @@ substantial role in the increase of the unadjusted mortality.
 A helper function to add the weights for age adjustment.
 
 ``` r
-add_weight <- function(.data, weight_year) {
-  .data %>% 
+add_weight <- function(data, weight_year) {
+  data %>% 
     left_join(
-      .data %>%
+      data %>%
         filter(year == weight_year) %>% 
         select(!c(year, deaths), weight = population),
-      by = names(.data) %>% setdiff(c("year", "deaths", "population"))
+      by = names(data) %>% setdiff(c("year", "deaths", "population"))
     )
 }
 ```

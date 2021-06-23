@@ -111,14 +111,14 @@ v %>%
 A helper function to set the mortality rates for all years to that of a given year.
 
 ```{r}
-set_rates <- function(.data, rate_year) {
-  .data %>% 
+set_rates <- function(data, rate_year) {
+  data %>% 
     left_join(
-      .data %>% 
+      data %>% 
         filter(year == rate_year) %>% 
         mutate(rate = deaths / population * 1e5) %>% 
         select(!c(year, deaths, population)),
-      by = names(.data) %>% setdiff(c("year", "deaths", "population"))
+      by = names(data) %>% setdiff(c("year", "deaths", "population"))
     )
 }
 ```
@@ -160,13 +160,13 @@ From 1999 to 2013, the unadjusted mortality rate increased from 382 to 415 death
 A helper function to add the weights for age adjustment.
 
 ```{r}
-add_weight <- function(.data, weight_year) {
-  .data %>% 
+add_weight <- function(data, weight_year) {
+  data %>% 
     left_join(
-      .data %>%
+      data %>%
         filter(year == weight_year) %>% 
         select(!c(year, deaths), weight = population),
-      by = names(.data) %>% setdiff(c("year", "deaths", "population"))
+      by = names(data) %>% setdiff(c("year", "deaths", "population"))
     )
 }
 ```

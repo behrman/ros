@@ -1,7 +1,7 @@
 Regression and Other Stories: Student
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-06-23
 
 -   [12 Transformations and
     regression](#12-transformations-and-regression)
@@ -51,8 +51,8 @@ plot_coef <- function(fit, prob_outer = 1, xlim = NULL) {
     theme(text = element_text(family = "sans"))
 }
   # Plot implied prior and Bayesian R^2 distributions
-plot_r2 <- function(.data) {
-  .data %>% 
+plot_r2 <- function(data) {
+  data %>% 
     pivot_longer(cols = everything()) %>% 
     ggplot(aes(value)) +
     geom_histogram(binwidth = 0.01, boundary = 0) +

@@ -49,8 +49,8 @@ plot_coef <- function(fit, prob_outer = 1, xlim = NULL) {
     theme(text = element_text(family = "sans"))
 }
   # Plot implied prior and Bayesian R^2 distributions
-plot_r2 <- function(.data) {
-  .data %>% 
+plot_r2 <- function(data) {
+  data %>% 
     pivot_longer(cols = everything()) %>% 
     ggplot(aes(value)) +
     geom_histogram(binwidth = 0.01, boundary = 0) +
