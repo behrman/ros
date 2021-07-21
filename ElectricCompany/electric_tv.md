@@ -1,7 +1,7 @@
 Regression and Other Stories: Electric Company
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-07-21
 
 -   [1 Overview](#1-overview)
     -   [1.3 Some examples of
@@ -81,7 +81,7 @@ source(file_common)
 Data
 
 ``` r
-electric_wide <- read_table2(file_electric_wide)
+electric_wide <- read_table(file_electric_wide)
 
 glimpse(electric_wide)
 ```
@@ -163,7 +163,7 @@ Data
 ``` r
 electric <-
   read_csv(file_electric) %>% 
-  select(!X1)
+  select(!...1)
 
 glimpse(electric)
 ```

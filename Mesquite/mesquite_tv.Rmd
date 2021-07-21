@@ -77,7 +77,7 @@ source(file_common)
 Data
 
 ```{r, message=FALSE}
-mesquite <- read_table2(file_mesquite)
+mesquite <- read_table(file_mesquite)
 
 mesquite
 ```

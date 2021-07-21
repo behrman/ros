@@ -44,7 +44,7 @@ Data
 ```{r, message=FALSE}
 golf <- 
   file_golf %>% 
-  read_table2(skip = 2) %>% 
+  read_table(skip = 2) %>% 
   mutate(prob_se = sqrt((y / n) * (1 - y / n) / n))
 
 golf

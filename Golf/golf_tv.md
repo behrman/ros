@@ -1,7 +1,7 @@
 Regression and Other Stories: Golf
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-07-21
 
 -   [22 Advanced regression and multilevel
     models](#22-advanced-regression-and-multilevel-models)
@@ -52,7 +52,7 @@ Data
 ``` r
 golf <- 
   file_golf %>% 
-  read_table2(skip = 2) %>% 
+  read_table(skip = 2) %>% 
   mutate(prob_se = sqrt((y / n) * (1 - y / n) / n))
 
 golf

@@ -41,7 +41,7 @@ Data
 ```{r, message=FALSE}
 unemployment <- 
   file_unemployment %>% 
-  read_table2() %>% 
+  read_table() %>% 
   mutate(y_lag = lag(y))
 
 unemployment

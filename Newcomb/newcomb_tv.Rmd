@@ -67,7 +67,7 @@ source(file_common)
 Data
 
 ```{r, message=FALSE}
-newcomb <- read_table2(file_newcomb)
+newcomb <- read_table(file_newcomb)
 
 newcomb
 ```

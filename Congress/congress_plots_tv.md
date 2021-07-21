@@ -1,7 +1,7 @@
 Regression and Other Stories: Congress
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-07-21
 
 -   [2 Data and measurement](#2-data-and-measurement)
     -   [2.3 All graphs are comparisons](#23-all-graphs-are-comparisons)
@@ -52,7 +52,7 @@ Data
 ``` r
 elections <- 
   fs::dir_ls(path = dir_elections, regexp = "\\d{4}.asc$") %>% 
-  map_dfr(~ read_table2(., col_names = FALSE), .id = "year") %>% 
+  map_dfr(~ read_table(., col_names = FALSE), .id = "year") %>% 
   rename(!!! elections_rename) %>% 
   mutate(
     year = str_match(year, "(\\d{4}).asc$")[, 2] %>% as.integer(),

@@ -1,7 +1,7 @@
 Regression and Other Stories: Unemployment
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-06-23
+2021-07-21
 
 -   [11 Assumptions, diagnostics, and model
     evaluation](#11-assumptions-diagnostics-and-model-evaluation)
@@ -49,7 +49,7 @@ Data
 ``` r
 unemployment <- 
   file_unemployment %>% 
-  read_table2() %>% 
+  read_table() %>% 
   mutate(y_lag = lag(y))
 
 unemployment

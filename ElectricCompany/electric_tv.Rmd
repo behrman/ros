@@ -41,7 +41,7 @@ source(file_common)
 Data
 
 ```{r, message=FALSE}
-electric_wide <- read_table2(file_electric_wide)
+electric_wide <- read_table(file_electric_wide)
 
 glimpse(electric_wide)
 ```
@@ -110,7 +110,7 @@ Data
 ```{r, message=FALSE, warning=FALSE}
 electric <-
   read_csv(file_electric) %>% 
-  select(!X1)
+  select(!...1)
 
 glimpse(electric)
 ```

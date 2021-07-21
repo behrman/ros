@@ -1,7 +1,7 @@
 Regression and Other Stories: Mesquite
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-04-20
+2021-07-21
 
 -   [12 Transformation and
     regression](#12-transformation-and-regression)
@@ -86,7 +86,7 @@ source(file_common)
 Data
 
 ``` r
-mesquite <- read_table2(file_mesquite)
+mesquite <- read_table(file_mesquite)
 
 mesquite
 ```

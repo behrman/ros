@@ -1,7 +1,7 @@
 Regression and Other Stories: Newcomb
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-06-22
+2021-07-21
 
 -   [11 Assumptions, diagnostics, and model
     evaluation](#11-assumptions-diagnostics-and-model-evaluation)
@@ -71,7 +71,7 @@ source(file_common)
 Data
 
 ``` r
-newcomb <- read_table2(file_newcomb)
+newcomb <- read_table(file_newcomb)
 
 newcomb
 ```
