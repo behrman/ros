@@ -1,7 +1,7 @@
 Regression and Other Stories: Poststratification 2
 ================
 Andrew Gelman, Jennifer Hill, Aki Vehtari
-2021-06-23
+2021-09-06
 
 -   [17 Poststratification and missing-data
     imputation](#17-poststratification-and-missing-data-imputation)
@@ -74,7 +74,7 @@ Function to return simulation parameter.
 param <- function(var_, value_, param) {
   params %>% 
     filter(var == var_, value == value_) %>% 
-    pull({{param}})
+    pull({{ param }})
 }
 
 param("sex", "Female", pop_prop)
@@ -304,7 +304,7 @@ poststrat %>%
   summarize(yes_pop = sum(yes_pred * n_prop))
 ```
 
-    #> # A tibble: 1 x 1
+    #> # A tibble: 1 × 1
     #>   yes_pop
     #>     <dbl>
     #> 1   0.586
@@ -319,7 +319,7 @@ tibble(
   summarize(across(yes_pop, list(mean = mean, sd = sd)))
 ```
 
-    #> # A tibble: 1 x 2
+    #> # A tibble: 1 × 2
     #>   yes_pop_mean yes_pop_sd
     #>          <dbl>      <dbl>
     #> 1        0.586     0.0170
@@ -333,7 +333,7 @@ poststrat %>%
   summarize(yes_pop_true = sum(yes_prob * n_prop))
 ```
 
-    #> # A tibble: 1 x 1
+    #> # A tibble: 1 × 1
     #>   yes_pop_true
     #>          <dbl>
     #> 1        0.593

@@ -43,7 +43,7 @@ Data
 naes <- 
   file_naes %>% 
   read_csv() %>% 
-  select(!X1)
+  select(!...1)
 
 naes
 ```
@@ -65,7 +65,7 @@ Let's now look at `age`.
 ```{r}
 age_count <- function(var) {
   naes %>% 
-    drop_na({{var}}) %>% 
+    drop_na({{ var }}) %>% 
     count(age) %>% 
     arrange(desc(age))
 }
@@ -89,12 +89,12 @@ Create indicator variable `y` from `var` and add to naes.
 ```{r}
 indicator <- function(var) {
   naes %>% 
-    drop_na({{var}}) %>% 
+    drop_na({{ var }}) %>% 
     mutate(
       y =
         case_when(
-          {{var}} == "Yes" ~ 1,
-          {{var}} == "No" ~ 0,
+          {{ var }} == "Yes" ~ 1,
+          {{ var }} == "No" ~ 0,
           TRUE ~ NA_real_
         )
     )
@@ -106,10 +106,10 @@ Return tibble with proportion of "Yes" responses and total number of responses f
 ```{r}
 yes_prop <- function(var) {
   naes %>% 
-    drop_na({{var}}) %>% 
+    drop_na({{ var }}) %>% 
     group_by(age) %>% 
     summarize(
-      y = sum({{var}} == "Yes") / n(),
+      y = sum({{ var }} == "Yes") / n(),
       n = n()
     )
 }
@@ -122,14 +122,14 @@ pred <- function(var, method = c("loess", "splines")) {
   method <- match.arg(method)
   
   if (method == "loess") {
-    data <- indicator({{var}})
+    data <- indicator({{ var }})
     fit <- loess(y ~ age, data = data)
     tibble(
       age = seq_range(data$age),
       y = predict(fit, newdata = tibble(age))
     )
   } else if (method == "splines") {
-    data <- yes_prop({{var}})
+    data <- yes_prop({{ var }})
     fit <- stan_gamm4(y ~ s(age), data = data, refresh = 0, adapt_delta = 0.99)
     tibble(age = seq_range(data$age)) %>% 
       predictive_intervals(fit = fit)
@@ -150,7 +150,7 @@ plot <- function(var, method = c("", "loess", "splines")) {
     )
 
   plot <-
-    yes_prop({{var}}) %>% 
+    yes_prop({{ var }}) %>% 
     ggplot(aes(age)) +
     geom_point(aes(y = y, size = n), shape = "circle filled", fill = "grey75") +
     coord_cartesian(ylim = c(0, NA)) +
@@ -161,7 +161,7 @@ plot <- function(var, method = c("", "loess", "splines")) {
     ) +
     theme(legend.position = "none") +
     labs(
-      title = title %>% pull({{var}}),
+      title = title %>% pull({{ var }}),
       x = "Age",
       y = "Percentage of yes responses"
     )
@@ -169,10 +169,10 @@ plot <- function(var, method = c("", "loess", "splines")) {
   if (method == "loess") {
     plot <-
       plot +
-      geom_line(aes(age, y), data = pred(var = {{var}}, method = "loess")) +
+      geom_line(aes(age, y), data = pred(var = {{ var }}, method = "loess")) +
       labs(subtitle = "Loess fit")
   } else if (method == "splines") {
-    v <- pred(var = {{var}}, method = "splines")
+    v <- pred(var = {{ var }}, method = "splines")
     plot <-
       plot +
       geom_ribbon(aes(ymin = `5%`, ymax = `95%`), data = v, alpha = 0.25) +

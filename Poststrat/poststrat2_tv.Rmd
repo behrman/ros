@@ -67,7 +67,7 @@ Function to return simulation parameter.
 param <- function(var_, value_, param) {
   params %>% 
     filter(var == var_, value == value_) %>% 
-    pull({{param}})
+    pull({{ param }})
 }
 
 param("sex", "Female", pop_prop)

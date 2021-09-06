@@ -1,7 +1,7 @@
 Regression and Other Stories: Gay
 ================
 Andrew Gelman, Aki Vehtari
-2021-04-20
+2021-09-06
 
 -   [22 Advanced regression and multilevel
     models](#22-advanced-regression-and-multilevel-models)
@@ -46,24 +46,24 @@ Data
 naes <- 
   file_naes %>% 
   read_csv() %>% 
-  select(!X1)
+  select(!...1)
 
 naes
 ```
 
-    #> # A tibble: 81,422 x 6
-    #>      age gender race    gayFavorFederalMarri… gayFavorStateMarri… gayKnowSomeone
-    #>    <dbl> <chr>  <chr>   <chr>                 <chr>               <chr>         
-    #>  1    70 Female Hispan… No                    <NA>                <NA>          
-    #>  2    54 Female White   No                    <NA>                <NA>          
-    #>  3    74 Male   White   No                    <NA>                <NA>          
-    #>  4    73 Female Other   Yes                   No                  No            
-    #>  5    48 Female White   No                    Yes                 Yes           
-    #>  6    58 Male   White   No                    Yes                 Yes           
-    #>  7    35 Female White   Yes                   <NA>                <NA>          
-    #>  8    74 Female White   No                    <NA>                <NA>          
-    #>  9    63 Female White   No                    No                  No            
-    #> 10    64 Male   White   Yes                   <NA>                <NA>          
+    #> # A tibble: 81,422 × 6
+    #>      age gender race     gayFavorFederalMarri… gayFavorStateMarr… gayKnowSomeone
+    #>    <dbl> <chr>  <chr>    <chr>                 <chr>              <chr>         
+    #>  1    70 Female Hispanic No                    <NA>               <NA>          
+    #>  2    54 Female White    No                    <NA>               <NA>          
+    #>  3    74 Male   White    No                    <NA>               <NA>          
+    #>  4    73 Female Other    Yes                   No                 No            
+    #>  5    48 Female White    No                    Yes                Yes           
+    #>  6    58 Male   White    No                    Yes                Yes           
+    #>  7    35 Female White    Yes                   <NA>               <NA>          
+    #>  8    74 Female White    No                    <NA>               <NA>          
+    #>  9    63 Female White    No                    No                 No            
+    #> 10    64 Male   White    Yes                   <NA>               <NA>          
     #> # … with 81,412 more rows
 
 Let’s understand the `NA`s in the data.
@@ -94,7 +94,7 @@ Let’s now look at `age`.
 ``` r
 age_count <- function(var) {
   naes %>% 
-    drop_na({{var}}) %>% 
+    drop_na({{ var }}) %>% 
     count(age) %>% 
     arrange(desc(age))
 }
@@ -102,7 +102,7 @@ age_count <- function(var) {
 age_count(gayFavorStateMarriage)
 ```
 
-    #> # A tibble: 81 x 2
+    #> # A tibble: 81 × 2
     #>      age     n
     #>    <dbl> <int>
     #>  1    97     1
@@ -121,7 +121,7 @@ age_count(gayFavorStateMarriage)
 age_count(gayKnowSomeone)
 ```
 
-    #> # A tibble: 81 x 2
+    #> # A tibble: 81 × 2
     #>      age     n
     #>    <dbl> <int>
     #>  1    97     1
@@ -151,12 +151,12 @@ Create indicator variable `y` from `var` and add to naes.
 ``` r
 indicator <- function(var) {
   naes %>% 
-    drop_na({{var}}) %>% 
+    drop_na({{ var }}) %>% 
     mutate(
       y =
         case_when(
-          {{var}} == "Yes" ~ 1,
-          {{var}} == "No" ~ 0,
+          {{ var }} == "Yes" ~ 1,
+          {{ var }} == "No" ~ 0,
           TRUE ~ NA_real_
         )
     )
@@ -169,10 +169,10 @@ responses for each age for variable `var`.
 ``` r
 yes_prop <- function(var) {
   naes %>% 
-    drop_na({{var}}) %>% 
+    drop_na({{ var }}) %>% 
     group_by(age) %>% 
     summarize(
-      y = sum({{var}} == "Yes") / n(),
+      y = sum({{ var }} == "Yes") / n(),
       n = n()
     )
 }
@@ -186,14 +186,14 @@ pred <- function(var, method = c("loess", "splines")) {
   method <- match.arg(method)
   
   if (method == "loess") {
-    data <- indicator({{var}})
+    data <- indicator({{ var }})
     fit <- loess(y ~ age, data = data)
     tibble(
       age = seq_range(data$age),
       y = predict(fit, newdata = tibble(age))
     )
   } else if (method == "splines") {
-    data <- yes_prop({{var}})
+    data <- yes_prop({{ var }})
     fit <- stan_gamm4(y ~ s(age), data = data, refresh = 0, adapt_delta = 0.99)
     tibble(age = seq_range(data$age)) %>% 
       predictive_intervals(fit = fit)
@@ -214,7 +214,7 @@ plot <- function(var, method = c("", "loess", "splines")) {
     )
 
   plot <-
-    yes_prop({{var}}) %>% 
+    yes_prop({{ var }}) %>% 
     ggplot(aes(age)) +
     geom_point(aes(y = y, size = n), shape = "circle filled", fill = "grey75") +
     coord_cartesian(ylim = c(0, NA)) +
@@ -225,7 +225,7 @@ plot <- function(var, method = c("", "loess", "splines")) {
     ) +
     theme(legend.position = "none") +
     labs(
-      title = title %>% pull({{var}}),
+      title = title %>% pull({{ var }}),
       x = "Age",
       y = "Percentage of yes responses"
     )
@@ -233,10 +233,10 @@ plot <- function(var, method = c("", "loess", "splines")) {
   if (method == "loess") {
     plot <-
       plot +
-      geom_line(aes(age, y), data = pred(var = {{var}}, method = "loess")) +
+      geom_line(aes(age, y), data = pred(var = {{ var }}, method = "loess")) +
       labs(subtitle = "Loess fit")
   } else if (method == "splines") {
-    v <- pred(var = {{var}}, method = "splines")
+    v <- pred(var = {{ var }}, method = "splines")
     plot <-
       plot +
       geom_ribbon(aes(ymin = `5%`, ymax = `95%`), data = v, alpha = 0.25) +
